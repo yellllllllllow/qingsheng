@@ -261,7 +261,6 @@ public class MainActivity extends AppCompatActivity {
                 monitorServiceIntent = new Intent(this, ChatMonitorService.class);
                 monitorServiceIntent.putExtra("resultCode", resultCode);
                 monitorServiceIntent.putExtra("resultData", data);
-                monitorServiceIntent.putExtra("mode", isManualMode ? "manual" : "realtime");
                 startService(monitorServiceIntent);
 
                 if (Settings.canDrawOverlays(this)) {
@@ -716,7 +715,6 @@ public class MainActivity extends AppCompatActivity {
         monitorServiceIntent = new Intent(this, ChatMonitorService.class);
         monitorServiceIntent.putExtra("resultCode", resultCode);
         monitorServiceIntent.putExtra("resultData", data);
-        monitorServiceIntent.putExtra("mode", isManualMode ? "manual" : "realtime");
         startService(monitorServiceIntent);
 
         if (Settings.canDrawOverlays(this)) {
