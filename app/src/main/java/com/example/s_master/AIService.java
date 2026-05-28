@@ -3,19 +3,14 @@ package com.example.s_master;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
-import android.os.AsyncTask;
+
 import android.util.Base64;
 import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -206,108 +201,65 @@ public class AIService {
             callback.onError("NO_API_KEY");
             return;
         }
-        new FetchModelsTask(callback).execute();
-    }
-
-    private class FetchModelsTask extends AsyncTask<Void, Void, List<String>> {
-        private ModelListCallback callback;
-        private String error;
-
-        FetchModelsTask(ModelListCallback callback) {
-            this.callback = callback;
-        }
-
-        @Override
-        protected List<String> doInBackground(Void... voids) {
-            try {
-                String modelsUrl = "";
-                for (ProviderInfo p : PROVIDERS) {
-                    if (p.name.equals(provider)) {
-                        modelsUrl = p.modelsUrl;
-                        break;
-                    }
-                }
-                if (modelsUrl.isEmpty()) {
-                    error = "未找到模型列表地址";
-                    return null;
-                }
-                return callModelsApi(modelsUrl);
-            } catch (Exception e) {
-                error = e.getMessage();
-                Log.e(TAG, "Fetch models error", e);
-                return null;
+        
+        String modelsUrl = "";
+        for (ProviderInfo p : PROVIDERS) {
+            if (p.name.equals(provider)) {
+                modelsUrl = p.modelsUrl;
+                break;
             }
         }
-
-        @Override
-        protected void onPostExecute(List<String> modelIds) {
-            if (modelIds != null) {
+        if (modelsUrl.isEmpty()) {
+            callback.onError("未找到模型列表地址");
+            return;
+        }
+        
+        NetworkUtils.fetchModels(modelsUrl, apiKey, new NetworkUtils.NetworkCallback<JSONArray>() {
+            @Override
+            public void onSuccess(JSONArray data) {
                 List<String> vision = new ArrayList<>();
                 List<String> text = new ArrayList<>();
-                for (String m : modelIds) {
-                    String lower = m.toLowerCase();
-                    boolean isTextToImage = lower.contains("stable-diffusion") || lower.contains("sdxl")
-                            || lower.contains("flux") || lower.contains("dall-e")
-                            || lower.contains("kolors") || lower.contains("pixart")
-                            || lower.contains("diffusion") || lower.contains("wuerstchen")
-                            || lower.contains("latent-consistency");
-                    if (isTextToImage) continue;
-                    if (lower.contains("vision") || lower.contains("/vl")
-                            || lower.startsWith("vl-") || lower.contains("-vl-")
-                            || lower.contains("_vl") || lower.contains("vl2")
-                            || lower.contains("omni") || lower.contains("4o")
-                            || lower.contains("gemini-pro-vision")
-                            || lower.contains("claude-3") || lower.contains("glm-4v")
-                            || lower.contains("qwen-vl") || lower.contains("internvl")
-                            || lower.contains("janus") || lower.contains("deepseek-vl")
-                            || lower.contains("cogvlm") || lower.contains("llava")
-                            || lower.contains("yi-vl") || lower.contains("step-1v")
-                            || lower.contains("minicpm-v") || lower.contains("phi-3-vision")) {
-                        vision.add(m);
-                    } else {
-                        text.add(m);
+                for (int i = 0; i < data.length(); i++) {
+                    try {
+                        String m = data.getJSONObject(i).getString("id");
+                        String lower = m.toLowerCase();
+                        boolean isTextToImage = lower.contains("stable-diffusion") || lower.contains("sdxl")
+                                || lower.contains("flux") || lower.contains("dall-e")
+                                || lower.contains("kolors") || lower.contains("pixart")
+                                || lower.contains("diffusion") || lower.contains("wuerstchen")
+                                || lower.contains("latent-consistency");
+                        if (isTextToImage) continue;
+                        if (!lower.contains("embedding") && !lower.contains("tts") 
+                                && !lower.contains("whisper") && !lower.contains("davinci") 
+                                && !lower.contains("babbage") && !lower.contains("moderation")) {
+                            if (lower.contains("vision") || lower.contains("/vl")
+                                    || lower.startsWith("vl-") || lower.contains("-vl-")
+                                    || lower.contains("_vl") || lower.contains("vl2")
+                                    || lower.contains("omni") || lower.contains("4o")
+                                    || lower.contains("gemini-pro-vision")
+                                    || lower.contains("claude-3") || lower.contains("glm-4v")
+                                    || lower.contains("qwen-vl") || lower.contains("internvl")
+                                    || lower.contains("janus") || lower.contains("deepseek-vl")
+                                    || lower.contains("cogvlm") || lower.contains("llava")
+                                    || lower.contains("yi-vl") || lower.contains("step-1v")
+                                    || lower.contains("minicpm-v") || lower.contains("phi-3-vision")) {
+                                vision.add(m);
+                            } else {
+                                text.add(m);
+                            }
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "Parse model error", e);
                     }
                 }
                 callback.onResult(vision, text);
-            } else {
-                callback.onError(error != null ? error : "获取失败");
             }
-        }
-    }
 
-    private List<String> callModelsApi(String modelsUrl) throws Exception {
-        URL url = new URL(modelsUrl);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("GET");
-        conn.setRequestProperty("Authorization", "Bearer " + apiKey);
-        conn.setConnectTimeout(15000);
-        conn.setReadTimeout(30000);
-
-        int code = conn.getResponseCode();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(
-                code == 200 ? conn.getInputStream() : conn.getErrorStream()));
-        StringBuilder resp = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) resp.append(line);
-        reader.close();
-
-        if (code != 200) {
-            throw new Exception("HTTP " + code + ": " + resp.toString());
-        }
-
-        List<String> models = new ArrayList<>();
-        JSONObject json = new JSONObject(resp.toString());
-        JSONArray data = json.getJSONArray("data");
-        for (int i = 0; i < data.length(); i++) {
-            JSONObject m = data.getJSONObject(i);
-            String id = m.getString("id");
-            if (!id.contains("embedding") && !id.contains("tts") && !id.contains("whisper")
-                    && !id.contains("davinci") && !id.contains("babbage")
-                    && !id.contains("moderation") && !id.contains("dall-e")) {
-                models.add(id);
+            @Override
+            public void onError(String error) {
+                callback.onError(error);
             }
-        }
-        return models;
+        });
     }
 
     public interface AiCallback {
@@ -320,7 +272,26 @@ public class AIService {
             callback.onError("NO_API_KEY");
             return;
         }
-        new VisionTask(screenshot, callback).execute();
+        try {
+            String base64 = bitmapToBase64(screenshot, 80);
+            String model = getVisionModelId();
+            String body = buildVisionRequestBody(model, base64);
+            NetworkUtils.callChatApi(getChatUrl(), apiKey, body, new NetworkUtils.NetworkCallback<String>() {
+                @Override
+                public void onSuccess(String result) {
+                    String[] parts = parseResponse(result);
+                    callback.onResult(parts[0], parts[1]);
+                }
+
+                @Override
+                public void onError(String error) {
+                    callback.onError(error != null ? error : "请求失败");
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Vision API error", e);
+            callback.onError(e.getMessage());
+        }
     }
 
     public void testModel(String modelId, boolean isVision, AiCallback callback) {
@@ -328,63 +299,32 @@ public class AIService {
             callback.onError("NO_API_KEY");
             return;
         }
-        new TestModelTask(modelId, isVision, callback).execute();
-    }
+        try {
+            JSONObject body = new JSONObject();
+            body.put("model", modelId);
+            body.put("max_tokens", 100);
+            body.put("temperature", 0.5);
+            JSONArray messages = new JSONArray();
+            JSONObject userMsg = new JSONObject();
+            userMsg.put("role", "user");
+            userMsg.put("content", "回复「测试通过」四个字即可");
+            messages.put(userMsg);
+            body.put("messages", messages);
 
-    private class TestModelTask extends AsyncTask<Void, Void, String> {
-        private String modelId;
-        private boolean isVision;
-        private AiCallback callback;
-        private String error;
+            NetworkUtils.callChatApi(getChatUrl(), apiKey, body.toString(), new NetworkUtils.NetworkCallback<String>() {
+                @Override
+                public void onSuccess(String result) {
+                    callback.onResult("", result);
+                }
 
-        TestModelTask(String modelId, boolean isVision, AiCallback callback) {
-            this.modelId = modelId;
-            this.isVision = isVision;
-            this.callback = callback;
-        }
-
-        @Override
-        protected String doInBackground(Void... voids) {
-            try {
-                String urlStr = getChatUrl();
-                URL url = new URL(urlStr);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/json");
-                conn.setRequestProperty("Authorization", "Bearer " + apiKey);
-                conn.setDoOutput(true);
-                conn.setConnectTimeout(20000);
-                conn.setReadTimeout(30000);
-
-                JSONObject body = new JSONObject();
-                body.put("model", modelId);
-                body.put("max_tokens", 100);
-                body.put("temperature", 0.5);
-
-                JSONArray messages = new JSONArray();
-                JSONObject userMsg = new JSONObject();
-                userMsg.put("role", "user");
-                userMsg.put("content", "回复「测试通过」四个字即可");
-                messages.put(userMsg);
-                body.put("messages", messages);
-
-                writeBody(conn, body.toString());
-                String resp = readResponse(conn);
-                return resp;
-            } catch (Exception e) {
-                error = e.getMessage();
-                Log.e(TAG, "Test model error", e);
-                return null;
-            }
-        }
-
-        @Override
-        protected void onPostExecute(String result) {
-            if (result != null) {
-                callback.onResult("", result);
-            } else {
-                callback.onError(error != null ? error : "测试失败");
-            }
+                @Override
+                public void onError(String error) {
+                    callback.onError(error != null ? error : "测试失败");
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Test model error", e);
+            callback.onError(e.getMessage());
         }
     }
 
@@ -393,155 +333,71 @@ public class AIService {
             callback.onResult("", getBuiltInSuggestion(chatText));
             return;
         }
-        new TextTask(chatText, callback).execute();
-    }
+        try {
+            String model = getReasoningModelId();
+            String body = buildTextRequestBody(model, chatText);
+            NetworkUtils.callChatApi(getChatUrl(), apiKey, body, new NetworkUtils.NetworkCallback<String>() {
+                @Override
+                public void onSuccess(String result) {
+                    String[] parts = parseResponse(result);
+                    callback.onResult(parts[0], parts[1]);
+                }
 
-    private class VisionTask extends AsyncTask<Void, Void, String> {
-        private Bitmap bitmap;
-        private AiCallback callback;
-        private String error;
-
-        VisionTask(Bitmap bitmap, AiCallback callback) {
-            this.bitmap = bitmap;
-            this.callback = callback;
-        }
-
-        @Override
-        protected String doInBackground(Void... voids) {
-            try {
-                String base64 = bitmapToBase64(bitmap, 80);
-                String model = getVisionModelId();
-                return callChatApi(model, base64, true);
-            } catch (Exception e) {
-                error = e.getMessage();
-                Log.e(TAG, "Vision API error", e);
-                return null;
-            }
-        }
-
-        @Override
-        protected void onPostExecute(String result) {
-            if (result != null) {
-                String[] parts = parseResponse(result);
-                callback.onResult(parts[0], parts[1]);
-            } else {
-                callback.onError(error != null ? error : "请求失败");
-            }
+                @Override
+                public void onError(String error) {
+                    Log.w(TAG, "Text analysis fallback: " + error);
+                    callback.onResult("", getBuiltInSuggestion(chatText));
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Reasoning API error", e);
+            callback.onResult("", getBuiltInSuggestion(chatText));
         }
     }
 
-    private class TextTask extends AsyncTask<Void, Void, String> {
-        private String chatText;
-        private AiCallback callback;
-        private String error;
-
-        TextTask(String chatText, AiCallback callback) {
-            this.chatText = chatText;
-            this.callback = callback;
-        }
-
-        @Override
-        protected String doInBackground(Void... voids) {
-            try {
-                String model = getReasoningModelId();
-                return callChatApi(model, chatText, false);
-            } catch (Exception e) {
-                error = e.getMessage();
-                Log.e(TAG, "Reasoning API error", e);
-                return null;
-            }
-        }
-
-        @Override
-        protected void onPostExecute(String result) {
-            if (result != null) {
-                String[] parts = parseResponse(result);
-                callback.onResult(parts[0], parts[1]);
-            } else if (error != null) {
-                callback.onError(error);
-            } else {
-                callback.onResult("", getBuiltInSuggestion(chatText));
-            }
-        }
-    }
-
-    private String callChatApi(String model, String input, boolean isVision) throws Exception {
-        String urlStr = getChatUrl();
-        URL url = new URL(urlStr);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setRequestProperty("Authorization", "Bearer " + apiKey);
-        conn.setDoOutput(true);
-        conn.setConnectTimeout(30000);
-        conn.setReadTimeout(60000);
-
+    private String buildVisionRequestBody(String model, String base64) throws Exception {
         JSONObject body = new JSONObject();
         body.put("model", model);
-        body.put("max_tokens", isVision ? 1000 : 800);
+        body.put("max_tokens", 1000);
         body.put("temperature", 0.7);
 
         JSONArray messages = new JSONArray();
-
-        if (isVision) {
-            JSONObject userMsg = new JSONObject();
-            userMsg.put("role", "user");
-            JSONArray content = new JSONArray();
-            JSONObject textPart = new JSONObject();
-            textPart.put("type", "text");
-            textPart.put("text", getVisionPrompt());
-            content.put(textPart);
-            JSONObject imagePart = new JSONObject();
-            JSONObject imageUrl = new JSONObject();
-            imageUrl.put("url", "data:image/jpeg;base64," + input);
-            imagePart.put("type", "image_url");
-            imagePart.put("image_url", imageUrl);
-            content.put(imagePart);
-            userMsg.put("content", content);
-            messages.put(userMsg);
-        } else {
-            JSONObject sysMsg = new JSONObject();
-            sysMsg.put("role", "system");
-            sysMsg.put("content", getTextPrompt());
-            messages.put(sysMsg);
-            JSONObject userMsg = new JSONObject();
-            userMsg.put("role", "user");
-            userMsg.put("content", "聊天内容：\n" + input);
-            messages.put(userMsg);
-        }
-
+        JSONObject userMsg = new JSONObject();
+        userMsg.put("role", "user");
+        JSONArray content = new JSONArray();
+        JSONObject textPart = new JSONObject();
+        textPart.put("type", "text");
+        textPart.put("text", getVisionPrompt());
+        content.put(textPart);
+        JSONObject imagePart = new JSONObject();
+        JSONObject imageUrl = new JSONObject();
+        imageUrl.put("url", "data:image/jpeg;base64," + base64);
+        imagePart.put("type", "image_url");
+        imagePart.put("image_url", imageUrl);
+        content.put(imagePart);
+        userMsg.put("content", content);
+        messages.put(userMsg);
         body.put("messages", messages);
-
-        writeBody(conn, body.toString());
-        return readResponse(conn);
+        return body.toString();
     }
 
-    private String readResponse(HttpURLConnection conn) throws Exception {
-        int code = conn.getResponseCode();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(
-                code == 200 ? conn.getInputStream() : conn.getErrorStream()));
-        StringBuilder resp = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) resp.append(line);
-        reader.close();
+    private String buildTextRequestBody(String model, String chatText) throws Exception {
+        JSONObject body = new JSONObject();
+        body.put("model", model);
+        body.put("max_tokens", 800);
+        body.put("temperature", 0.7);
 
-        if (code != 200) {
-            throw new Exception("API " + code + ": " + resp.toString());
-        }
-
-        JSONObject json = new JSONObject(resp.toString());
-        JSONArray choices = json.getJSONArray("choices");
-        return choices.getJSONObject(0)
-                .getJSONObject("message")
-                .getString("content")
-                .trim();
-    }
-
-    private void writeBody(HttpURLConnection conn, String body) throws Exception {
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(body.getBytes("UTF-8"));
-            os.flush();
-        }
+        JSONArray messages = new JSONArray();
+        JSONObject sysMsg = new JSONObject();
+        sysMsg.put("role", "system");
+        sysMsg.put("content", getTextPrompt());
+        messages.put(sysMsg);
+        JSONObject userMsg = new JSONObject();
+        userMsg.put("role", "user");
+        userMsg.put("content", "聊天内容：\n" + chatText);
+        messages.put(userMsg);
+        body.put("messages", messages);
+        return body.toString();
     }
 
     private String[] parseResponse(String response) {

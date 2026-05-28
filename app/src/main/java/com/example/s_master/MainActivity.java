@@ -231,28 +231,30 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, "请先选择图形模型", Toast.LENGTH_SHORT).show();
                 return;
             }
-            testVisionBtn.setText("⏳ 测试中");
+            String shortModel = model.length() > 20 ? model.substring(0, 20) + "..." : model;
+            testVisionBtn.setText("⏳ 测试: " + shortModel);
             testVisionBtn.setEnabled(false);
             aiService.testModel(model, true, new AIService.AiCallback() {
                 @Override
                 public void onResult(String analysis, String suggestion) {
                     runOnUiThread(() -> {
-                        testVisionBtn.setText("✅ 测试通过");
+                        testVisionBtn.setText("✅ " + shortModel);
+                        Toast.makeText(MainActivity.this, "图形模型测试通过: " + model, Toast.LENGTH_SHORT).show();
                         new android.os.Handler().postDelayed(() -> {
                             testVisionBtn.setText("▶ 测试图形模型");
                             testVisionBtn.setEnabled(true);
-                        }, 2000);
+                        }, 2500);
                     });
                 }
                 @Override
                 public void onError(String error) {
                     runOnUiThread(() -> {
-                        testVisionBtn.setText("❌ 测试失败");
+                        testVisionBtn.setText("❌ " + shortModel);
                         new android.os.Handler().postDelayed(() -> {
                             testVisionBtn.setText("▶ 测试图形模型");
                             testVisionBtn.setEnabled(true);
                         }, 3000);
-                        Toast.makeText(MainActivity.this, "测试失败：" + error, Toast.LENGTH_LONG).show();
+                        Toast.makeText(MainActivity.this, "测试失败 [" + model + "]: " + error, Toast.LENGTH_LONG).show();
                     });
                 }
             });
@@ -264,28 +266,30 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, "请先选择推理模型", Toast.LENGTH_SHORT).show();
                 return;
             }
-            testTextBtn.setText("⏳ 测试中");
+            String shortModel = model.length() > 20 ? model.substring(0, 20) + "..." : model;
+            testTextBtn.setText("⏳ 测试: " + shortModel);
             testTextBtn.setEnabled(false);
             aiService.testModel(model, false, new AIService.AiCallback() {
                 @Override
                 public void onResult(String analysis, String suggestion) {
                     runOnUiThread(() -> {
-                        testTextBtn.setText("✅ 测试通过");
+                        testTextBtn.setText("✅ " + shortModel);
+                        Toast.makeText(MainActivity.this, "推理模型测试通过: " + model, Toast.LENGTH_SHORT).show();
                         new android.os.Handler().postDelayed(() -> {
                             testTextBtn.setText("▶ 测试推理模型");
                             testTextBtn.setEnabled(true);
-                        }, 2000);
+                        }, 2500);
                     });
                 }
                 @Override
                 public void onError(String error) {
                     runOnUiThread(() -> {
-                        testTextBtn.setText("❌ 测试失败");
+                        testTextBtn.setText("❌ " + shortModel);
                         new android.os.Handler().postDelayed(() -> {
                             testTextBtn.setText("▶ 测试推理模型");
                             testTextBtn.setEnabled(true);
                         }, 3000);
-                        Toast.makeText(MainActivity.this, "测试失败：" + error, Toast.LENGTH_LONG).show();
+                        Toast.makeText(MainActivity.this, "测试失败 [" + model + "]: " + error, Toast.LENGTH_LONG).show();
                     });
                 }
             });
