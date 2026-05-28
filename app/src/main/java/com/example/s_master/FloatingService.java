@@ -46,6 +46,8 @@ public class FloatingService extends Service {
     private WindowManager.LayoutParams dockParams;
     private float dockDownX, dockDownY;
     private float dockTouchX, dockTouchY;
+    private boolean isDragging = false;
+    private android.view.GestureDetector gestureDetector;
 
     private float popupDownX, popupDownY;
     private float popupTouchX, popupTouchY;
@@ -143,28 +145,58 @@ public class FloatingService extends Service {
         dockParams.x = screenWidth - dockSize - (int)(20 * density);
         dockParams.y = screenHeight / 2;
 
+        gestureDetector = new android.view.GestureDetector(this, new android.view.GestureDetector.SimpleOnGestureListener() {
+            @Override
+            public void onLongPress(MotionEvent e) {
+                isDragging = true;
+                dockView.getRootView().setAlpha(0.7f);
+            }
+
+            @Override
+            public boolean onSingleTapConfirmed(MotionEvent e) {
+                if (!isDragging) {
+                    triggerCapture();
+                }
+                return true;
+            }
+        });
+        gestureDetector.setIsLongpressEnabled(true);
+
         dockView.setOnTouchListener((v, event) -> {
             switch (event.getAction()) {
                 case MotionEvent.ACTION_DOWN:
+                    isDragging = false;
                     dockDownX = dockParams.x;
                     dockDownY = dockParams.y;
                     dockTouchX = event.getRawX();
                     dockTouchY = event.getRawY();
+                    gestureDetector.onTouchEvent(event);
                     return true;
                 case MotionEvent.ACTION_MOVE:
-                    float dx = event.getRawX() - dockTouchX;
-                    float dy = event.getRawY() - dockTouchY;
-                    dockParams.x = Math.max(0, Math.min(screenWidth - dockSize, (int)(dockDownX + dx)));
-                    dockParams.y = Math.max(0, Math.min(screenHeight - dockSize, (int)(dockDownY + dy)));
-                    windowManager.updateViewLayout(dockView, dockParams);
+                    if (isDragging) {
+                        float dx = event.getRawX() - dockTouchX;
+                        float dy = event.getRawY() - dockTouchY;
+                        dockParams.x = Math.max(0, Math.min(screenWidth - dockSize, (int)(dockDownX + dx)));
+                        dockParams.y = Math.max(0, Math.min(screenHeight - dockSize, (int)(dockDownY + dy)));
+                        windowManager.updateViewLayout(dockView, dockParams);
+                    } else {
+                        float dist = (float) Math.sqrt(
+                                Math.pow(event.getRawX() - dockTouchX, 2)
+                                + Math.pow(event.getRawY() - dockTouchY, 2));
+                        if (dist > 20) {
+                            isDragging = true;
+                            dockView.getRootView().setAlpha(0.7f);
+                        }
+                    }
                     return true;
                 case MotionEvent.ACTION_UP:
-                    float clickDist = (float) Math.sqrt(
-                            Math.pow(event.getRawX() - dockTouchX, 2) 
-                            + Math.pow(event.getRawY() - dockTouchY, 2));
-                    if (clickDist < 10) {
-                        triggerCapture();
+                case MotionEvent.ACTION_CANCEL:
+                    if (isDragging) {
+                        dockView.getRootView().setAlpha(1.0f);
+                    } else {
+                        gestureDetector.onTouchEvent(event);
                     }
+                    isDragging = false;
                     return true;
             }
             return false;
