@@ -7,10 +7,6 @@
 - 💬 支持 Soul、微信等聊天应用
 - 🛡️ 被动模式，不自动发送消息，降低封号风险
 
-## 致谢
-
-本项目基于 [tomwong001/qingsheng](https://github.com/tomwong001/qingsheng) 项目进行修改和优化。感谢原作者的开源贡献！
-
 ## 构建指南
 
 ### 方法一：Android Studio（推荐）
