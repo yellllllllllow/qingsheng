@@ -6,6 +6,7 @@ import android.graphics.Bitmap;
 
 import android.util.Base64;
 import android.util.Log;
+import android.util.Pair;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -19,7 +20,6 @@ public class AIService {
     private static final String TAG = "AIService";
     private static final String PREFS_NAME = "S_masterPrefs";
 
-    // Storage keys
     private static final String KEY_PROVIDER = "api_provider";
     private static final String KEY_API_KEY = "api_key";
     private static final String KEY_VISION_MODEL = "vision_model";
@@ -57,6 +57,21 @@ public class AIService {
         new ProviderInfo("custom", "", "", "自定义"),
     };
 
+    private static final String[] VISION_KEYWORDS = {
+        "vision", "/vl", "vl-", "-vl-", "_vl", "vl2",
+        "omni", "4o", "gemini-pro-vision", "claude-3",
+        "glm-4v", "qwen-vl", "internvl", "janus",
+        "deepseek-vl", "cogvlm", "llava", "yi-vl",
+        "step-1v", "minicpm-v", "phi-3-vision"
+    };
+
+    private static final String[] SKIP_KEYWORDS = {
+        "stable-diffusion", "sdxl", "flux", "dall-e",
+        "kolors", "pixart", "diffusion", "wuerstchen",
+        "latent-consistency", "embedding", "tts",
+        "whisper", "davinci", "babbage", "moderation"
+    };
+
     public AIService(Context context) {
         this.context = context;
         loadConfig();
@@ -77,8 +92,8 @@ public class AIService {
         this.visionModel = visionModel;
         this.reasoningModel = reasoningModel;
         this.customUrl = customUrl;
-        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        prefs.edit()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
                 .putString(KEY_PROVIDER, provider)
                 .putString(KEY_API_KEY, apiKey)
                 .putString(KEY_VISION_MODEL, visionModel)
@@ -92,25 +107,24 @@ public class AIService {
     public String getVisionModel() { return visionModel; }
     public String getReasoningModel() { return reasoningModel; }
     public String getCustomUrl() { return customUrl; }
+    public boolean hasApiKey() { return apiKey != null && !apiKey.isEmpty(); }
 
     public void saveModelLists(List<String> visionModels, List<String> textModels) {
-        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        prefs.edit()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
                 .putString(KEY_VISION_MODELS, joinList(visionModels))
                 .putString(KEY_TEXT_MODELS, joinList(textModels))
                 .apply();
     }
 
     public List<String> getSavedVisionModels() {
-        String raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .getString(KEY_VISION_MODELS, "");
-        return splitList(raw);
+        return splitList(context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_VISION_MODELS, ""));
     }
 
     public List<String> getSavedTextModels() {
-        String raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .getString(KEY_TEXT_MODELS, "");
-        return splitList(raw);
+        return splitList(context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_TEXT_MODELS, ""));
     }
 
     private String joinList(List<String> list) {
@@ -155,14 +169,16 @@ public class AIService {
         return custom.isEmpty() ? SYSTEM_PROMPT_TEXT : custom;
     }
 
-    public boolean hasApiKey() { return apiKey != null && !apiKey.isEmpty(); }
+    private ProviderInfo getProviderInfo() {
+        for (ProviderInfo p : PROVIDERS) {
+            if (p.name.equals(provider)) return p;
+        }
+        return PROVIDERS[0];
+    }
 
     private String getChatUrl() {
         if ("custom".equals(provider) && !customUrl.isEmpty()) return customUrl;
-        for (ProviderInfo p : PROVIDERS) {
-            if (p.name.equals(provider)) return p.chatUrl;
-        }
-        return PROVIDERS[0].chatUrl;
+        return getProviderInfo().chatUrl;
     }
 
     private String getVisionModelId() {
@@ -191,6 +207,22 @@ public class AIService {
         }
     }
 
+    private boolean isVisionModel(String id) {
+        String lower = id.toLowerCase();
+        for (String kw : VISION_KEYWORDS) {
+            if (lower.contains(kw)) return true;
+        }
+        return false;
+    }
+
+    private boolean shouldSkip(String id) {
+        String lower = id.toLowerCase();
+        for (String kw : SKIP_KEYWORDS) {
+            if (lower.contains(kw)) return true;
+        }
+        return false;
+    }
+
     public interface ModelListCallback {
         void onResult(List<String> visionModels, List<String> textModels);
         void onError(String error);
@@ -201,19 +233,13 @@ public class AIService {
             callback.onError("NO_API_KEY");
             return;
         }
-        
-        String modelsUrl = "";
-        for (ProviderInfo p : PROVIDERS) {
-            if (p.name.equals(provider)) {
-                modelsUrl = p.modelsUrl;
-                break;
-            }
-        }
+
+        String modelsUrl = getProviderInfo().modelsUrl;
         if (modelsUrl.isEmpty()) {
             callback.onError("未找到模型列表地址");
             return;
         }
-        
+
         NetworkUtils.fetchModels(modelsUrl, apiKey, new NetworkUtils.NetworkCallback<JSONArray>() {
             @Override
             public void onSuccess(JSONArray data) {
@@ -222,31 +248,11 @@ public class AIService {
                 for (int i = 0; i < data.length(); i++) {
                     try {
                         String m = data.getJSONObject(i).getString("id");
-                        String lower = m.toLowerCase();
-                        boolean isTextToImage = lower.contains("stable-diffusion") || lower.contains("sdxl")
-                                || lower.contains("flux") || lower.contains("dall-e")
-                                || lower.contains("kolors") || lower.contains("pixart")
-                                || lower.contains("diffusion") || lower.contains("wuerstchen")
-                                || lower.contains("latent-consistency");
-                        if (isTextToImage) continue;
-                        if (!lower.contains("embedding") && !lower.contains("tts") 
-                                && !lower.contains("whisper") && !lower.contains("davinci") 
-                                && !lower.contains("babbage") && !lower.contains("moderation")) {
-                            if (lower.contains("vision") || lower.contains("/vl")
-                                    || lower.startsWith("vl-") || lower.contains("-vl-")
-                                    || lower.contains("_vl") || lower.contains("vl2")
-                                    || lower.contains("omni") || lower.contains("4o")
-                                    || lower.contains("gemini-pro-vision")
-                                    || lower.contains("claude-3") || lower.contains("glm-4v")
-                                    || lower.contains("qwen-vl") || lower.contains("internvl")
-                                    || lower.contains("janus") || lower.contains("deepseek-vl")
-                                    || lower.contains("cogvlm") || lower.contains("llava")
-                                    || lower.contains("yi-vl") || lower.contains("step-1v")
-                                    || lower.contains("minicpm-v") || lower.contains("phi-3-vision")) {
-                                vision.add(m);
-                            } else {
-                                text.add(m);
-                            }
+                        if (shouldSkip(m)) continue;
+                        if (isVisionModel(m)) {
+                            vision.add(m);
+                        } else {
+                            text.add(m);
                         }
                     } catch (Exception e) {
                         Log.e(TAG, "Parse model error", e);
@@ -405,7 +411,7 @@ public class AIService {
         void onError(String error);
     }
 
-    public void chatWithAgent(List<android.util.Pair<String, String>> conversation, ChatCallback callback) {
+    public void chatWithAgent(List<Pair<String, String>> conversation, ChatCallback callback) {
         if (!hasApiKey()) {
             callback.onError("请先在设置中填写 API Key");
             return;
@@ -429,7 +435,7 @@ public class AIService {
             sysMsg.put("content", prompt);
             messages.put(sysMsg);
 
-            for (android.util.Pair<String, String> turn : conversation) {
+            for (Pair<String, String> turn : conversation) {
                 JSONObject msg = new JSONObject();
                 msg.put("role", turn.first);
                 msg.put("content", turn.second);
@@ -484,9 +490,7 @@ public class AIService {
         while (matcher.find() && count < 3) {
             String style = matcher.group(1).trim();
             String text = matcher.group(2).trim();
-            if (style.startsWith("一") || style.startsWith("二") || style.startsWith("三")) {
-                style = style.replaceFirst("[一二三]\\s*-\\s*", "");
-            }
+            style = style.replaceFirst("[一二三]\\s*-\\s*", "");
             if (!text.isEmpty()) {
                 if (suggestionsBuilder.length() > 0) suggestionsBuilder.append("|||");
                 suggestionsBuilder.append(style).append("|||").append(text);

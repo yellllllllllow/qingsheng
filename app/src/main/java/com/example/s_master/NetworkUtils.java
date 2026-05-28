@@ -6,6 +6,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -17,6 +18,8 @@ import java.util.concurrent.Executors;
 public class NetworkUtils {
 
     private static final String TAG = "NetworkUtils";
+    private static final int CONNECT_TIMEOUT = 20000;
+    private static final int READ_TIMEOUT = 60000;
     private static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(3);
 
     public interface NetworkCallback<T> {
@@ -29,13 +32,13 @@ public class NetworkUtils {
             try {
                 HttpURLConnection conn = createConnection(url, "GET", apiKey);
                 int code = conn.getResponseCode();
-                String resp = readResponse(conn);
-                
+                String resp = readResponse(conn, code);
+
                 if (code != 200) {
                     callback.onError("HTTP " + code + ": " + resp);
                     return;
                 }
-                
+
                 JSONObject json = new JSONObject(resp);
                 JSONArray data = json.getJSONArray("data");
                 callback.onSuccess(data);
@@ -52,15 +55,15 @@ public class NetworkUtils {
                 HttpURLConnection conn = createConnection(url, "POST", apiKey);
                 conn.setDoOutput(true);
                 writeBody(conn, body);
-                
+
                 int code = conn.getResponseCode();
-                String resp = readResponse(conn);
-                
+                String resp = readResponse(conn, code);
+
                 if (code != 200) {
                     callback.onError("HTTP " + code + ": " + resp);
                     return;
                 }
-                
+
                 callback.onSuccess(resp);
             } catch (Exception e) {
                 Log.e(TAG, "Chat API error", e);
@@ -75,21 +78,23 @@ public class NetworkUtils {
         conn.setRequestMethod(method);
         conn.setRequestProperty("Authorization", "Bearer " + apiKey);
         conn.setRequestProperty("Content-Type", "application/json");
-        conn.setConnectTimeout(20000);
-        conn.setReadTimeout(60000);
+        conn.setConnectTimeout(CONNECT_TIMEOUT);
+        conn.setReadTimeout(READ_TIMEOUT);
         return conn;
     }
 
-    private static String readResponse(HttpURLConnection conn) throws Exception {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(
-                conn.getInputStream(), StandardCharsets.UTF_8));
-        StringBuilder resp = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) {
-            resp.append(line);
+    private static String readResponse(HttpURLConnection conn, int code) throws Exception {
+        InputStream is = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+        if (is == null) is = conn.getInputStream();
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(is, StandardCharsets.UTF_8))) {
+            StringBuilder resp = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                resp.append(line);
+            }
+            return resp.toString();
         }
-        reader.close();
-        return resp.toString();
     }
 
     private static void writeBody(HttpURLConnection conn, String body) throws Exception {

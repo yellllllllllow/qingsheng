@@ -217,12 +217,9 @@ public class FloatingService extends Service {
                 if (style.contains(stylePrefixes[j])) { matchedIdx = j; break; }
             }
 
-            String styleLabel;
-            if (matchedIdx >= 0) {
-                styleLabel = new String(Character.toChars(emojis[matchedIdx])) + " " + stylePrefixes[matchedIdx] + "风格";
-            } else {
-                styleLabel = "💡 " + style;
-            }
+            String styleLabel = matchedIdx >= 0
+                    ? new String(Character.toChars(emojis[matchedIdx])) + " " + stylePrefixes[matchedIdx] + "风格"
+                    : "💡 " + style;
 
             optionsContainer.addView(createOptionCard(styleLabel, text));
         }
@@ -276,45 +273,43 @@ public class FloatingService extends Service {
     }
 
     private View createOptionCard(String label, String text) {
-        int dp10 = (int)(10 * density);
         int dp8 = (int)(8 * density);
         int dp12 = (int)(12 * density);
+        int accentColor = getResources().getColor(R.color.purple_500);
+        int textColor = getResources().getColor(R.color.text_primary);
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp12, dp12, dp12, dp12);
-        card.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         card.setBackgroundResource(R.drawable.option_card_bg);
 
         LinearLayout.LayoutParams margin = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         margin.bottomMargin = dp8;
-        margin.topMargin = 0;
         card.setLayoutParams(margin);
 
         TextView labelView = new TextView(this);
         labelView.setText(label);
         labelView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        labelView.setTextColor(0xFF3366FF);
+        labelView.setTextColor(accentColor);
         labelView.setTypeface(null, Typeface.BOLD);
 
         TextView textView = new TextView(this);
         textView.setText(text);
         textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        textView.setTextColor(0xFF1A1A2E);
+        textView.setTextColor(textColor);
         textView.setLineSpacing(0, 1.2f);
-        textView.setPadding(0, dp8, 0, dp10);
+        textView.setPadding(0, dp8, 0, dp12);
 
         Button copyBtn = new Button(this);
         copyBtn.setText("📋 复制此条");
         copyBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         copyBtn.setAllCaps(false);
-        copyBtn.setTextColor(0xFFFFFFFF);
+        copyBtn.setTextColor(getResources().getColor(R.color.white));
 
         GradientDrawable btnBg = new GradientDrawable();
         btnBg.setCornerRadius(dp8);
-        btnBg.setColors(new int[]{0xFF3366FF, 0xFF2952CC});
+        btnBg.setColors(new int[]{accentColor, getResources().getColor(R.color.purple_700)});
         btnBg.setGradientType(GradientDrawable.LINEAR_GRADIENT);
         btnBg.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT);
         copyBtn.setBackground(btnBg);
@@ -326,9 +321,7 @@ public class FloatingService extends Service {
         copyBtn.setOnClickListener(v -> {
             android.content.ClipboardManager clipboard =
                     (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            android.content.ClipData clip =
-                    android.content.ClipData.newPlainText("suggestion", text);
-            clipboard.setPrimaryClip(clip);
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("suggestion", text));
             android.widget.Toast.makeText(FloatingService.this,
                     "✅ 已复制：「" + label + "」", android.widget.Toast.LENGTH_SHORT).show();
             hideResultPopup();
@@ -337,7 +330,6 @@ public class FloatingService extends Service {
         card.addView(labelView);
         card.addView(textView);
         card.addView(copyBtn);
-
         return card;
     }
 

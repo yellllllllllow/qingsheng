@@ -49,6 +49,7 @@ public class ChatMonitorService extends Service {
     private Handler backgroundHandler;
     private HandlerThread backgroundThread;
     private AIService aiService;
+    private boolean isServiceRunning = false;
 
     private Random random = new Random();
     private int captureInterval = 6000;
@@ -67,11 +68,10 @@ public class ChatMonitorService extends Service {
                 takeScreenshot();
             } else if (ACTION_TOGGLE_MODE.equals(action)) {
                 isManualMode = !isManualMode;
-                String modeText = isManualMode ? "手动模式" : "实时模式";
                 if (!isManualMode) {
                     startCaptureLoop();
                 }
-                showToast("已切换为" + modeText);
+                showToast("已切换为" + (isManualMode ? "手动" : "实时") + "模式");
                 updateNotification("就绪");
             } else if (ACTION_COPY.equals(action)) {
                 copyLastResult();
@@ -88,6 +88,9 @@ public class ChatMonitorService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        if (isServiceRunning) return;
+        isServiceRunning = true;
+
         aiService = new AIService(this);
 
         backgroundThread = new HandlerThread("ChatMonitor");
@@ -125,17 +128,17 @@ public class ChatMonitorService extends Service {
         }
 
         String modeLabel = isManualMode ? "手动" : "实时";
+        boolean hasResult = !lastResultText.isEmpty();
+        boolean isBusy = "分析中".equals(status);
 
         String contentText;
-        if ("分析中".equals(status)) {
+        if (isBusy) {
             contentText = "⏳ 正在分析屏幕内容...";
-        } else if (!lastResultText.isEmpty()) {
+        } else if (hasResult) {
             contentText = "💡 " + lastResultLabel;
         } else {
             contentText = "点击「📷」分析当前屏幕（" + modeLabel + "）";
         }
-
-        boolean hasResult = !lastResultText.isEmpty();
 
         PendingIntent openPi = PendingIntent.getBroadcast(this, 5,
                 new Intent(ACTION_OPEN_APP).setPackage(getPackageName()),
@@ -164,11 +167,10 @@ public class ChatMonitorService extends Service {
                 .setContentIntent(hasResult ? copyPi : openPi)
                 .setShowWhen(true)
                 .addAction(android.R.drawable.ic_menu_camera, "📷 分析", capturePi)
-                .addAction(android.R.drawable.ic_menu_sort_by_size, "🔄 " + modeLabel, togglePi);
+                .addAction(android.R.drawable.ic_menu_sort_by_size, "🔄 " + modeLabel, togglePi)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "⏹ 停止", stopPi);
 
-        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "⏹ 停止", stopPi);
-
-        if ("分析中".equals(status)) {
+        if (isBusy) {
             builder.setProgress(0, 0, true);
         }
 
@@ -190,16 +192,16 @@ public class ChatMonitorService extends Service {
             return;
         }
         ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        ClipData clip = ClipData.newPlainText("suggestion", lastResultText);
-        clipboard.setPrimaryClip(clip);
+        clipboard.setPrimaryClip(ClipData.newPlainText("suggestion", lastResultText));
         showToast("✅ 已复制分析结果");
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
-            if (intent.hasExtra("mode")) {
-                isManualMode = "manual".equals(intent.getStringExtra("mode"));
+            String mode = intent.getStringExtra("mode");
+            if (mode != null) {
+                isManualMode = "manual".equals(mode);
             }
             if (intent.hasExtra("resultCode") && intent.hasExtra("resultData")) {
                 int resultCode = intent.getIntExtra("resultCode", 0);
@@ -241,12 +243,10 @@ public class ChatMonitorService extends Service {
 
         imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2);
         imageReader.setOnImageAvailableListener(reader -> {
-            if (!isManualMode) {
+            if (!isManualMode && !isAnalyzing) {
                 Image image = reader.acquireLatestImage();
                 if (image != null) {
-                    if (!isAnalyzing) {
-                        processScreenshot(image);
-                    }
+                    processScreenshot(image);
                     image.close();
                 }
             }
@@ -279,10 +279,7 @@ public class ChatMonitorService extends Service {
         if (imageReader == null || isAnalyzing) return;
 
         Image image = imageReader.acquireLatestImage();
-        if (image == null) {
-            sendSuggestion("⚠️ 截图失败，请检查权限");
-            return;
-        }
+        if (image == null) return;
         processScreenshot(image);
         image.close();
     }
@@ -301,23 +298,17 @@ public class ChatMonitorService extends Service {
         if (aiService.hasApiKey()) {
             sendSuggestion("🤖 AI 正在分析屏幕内容...");
 
-            final Bitmap safeBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false);
-            bitmap.recycle();
-
-            aiService.analyzeScreenshot(safeBitmap, new AIService.AiCallback() {
+            aiService.analyzeScreenshot(bitmap, new AIService.AiCallback() {
                 @Override
                 public void onResult(String analysis, String suggestion) {
-                    String fullText = (analysis.isEmpty() ? "" : "📊 " + analysis + "\n\n")
-                            + "💡 " + suggestion;
-                    String label = suggestion.length() > 40
-                            ? suggestion.substring(0, 40) + "..." : suggestion;
+                    String fullText = (analysis.isEmpty() ? "" : "📊 " + analysis + "\n\n") + "💡 " + suggestion;
+                    String label = suggestion.length() > 40 ? suggestion.substring(0, 40) + "..." : suggestion;
 
                     lastResultText = fullText;
                     lastResultLabel = label;
                     sendSuggestion(fullText);
                     isAnalyzing = false;
                     updateNotification("就绪");
-                    if (!safeBitmap.isRecycled()) safeBitmap.recycle();
                 }
 
                 @Override
@@ -330,15 +321,14 @@ public class ChatMonitorService extends Service {
                     }
                     isAnalyzing = false;
                     updateNotification("就绪");
-                    if (!safeBitmap.isRecycled()) safeBitmap.recycle();
                 }
             });
         } else {
             sendSuggestion("⚠️ 请先在设置中填写 API Key");
             isAnalyzing = false;
             updateNotification("就绪");
-            bitmap.recycle();
         }
+        bitmap.recycle();
     }
 
     private Bitmap imageToBitmap(Image image) {
@@ -363,7 +353,11 @@ public class ChatMonitorService extends Service {
     private void sendSuggestion(String suggestion) {
         Intent intent = new Intent("com.example.s_master.SUGGESTION");
         intent.putExtra("suggestion", suggestion);
-        sendBroadcast(intent);
+        try {
+            sendBroadcast(intent);
+        } catch (Exception e) {
+            Log.e(TAG, "Send suggestion error", e);
+        }
     }
 
     private void stopService() {
@@ -373,21 +367,31 @@ public class ChatMonitorService extends Service {
 
     @Override
     public void onDestroy() {
-        super.onDestroy();
+        isServiceRunning = false;
         try {
             unregisterReceiver(actionReceiver);
         } catch (Exception e) {}
-        if (virtualDisplay != null) virtualDisplay.release();
-        if (imageReader != null) imageReader.close();
-        if (mediaProjection != null) mediaProjection.stop();
 
         if (backgroundThread != null) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
-                backgroundThread.quitSafely();
-            } else {
-                backgroundThread.quit();
-            }
+            backgroundThread.quitSafely();
+            backgroundThread = null;
         }
+
+        if (virtualDisplay != null) {
+            virtualDisplay.release();
+            virtualDisplay = null;
+        }
+        if (imageReader != null) {
+            imageReader.close();
+            imageReader = null;
+        }
+        if (mediaProjection != null) {
+            mediaProjection.stop();
+            mediaProjection = null;
+        }
+
+        stopForeground(true);
+        super.onDestroy();
     }
 
     @Override
