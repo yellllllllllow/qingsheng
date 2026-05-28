@@ -445,30 +445,32 @@ public class MainActivity extends AppCompatActivity {
             Intent captureIntent = projectionManager.createScreenCaptureIntent();
             startActivityForResult(captureIntent, REQUEST_MEDIA_PROJECTION);
         } else {
-            Intent data = new Intent();
-            data.setData(Uri.parse(savedResultData));
-            
-            monitorServiceIntent = new Intent(this, ChatMonitorService.class);
-            monitorServiceIntent.putExtra("resultCode", savedResultCode);
-            monitorServiceIntent.putExtra("resultData", data);
-            monitorServiceIntent.putExtra("mode", isManualMode ? "manual" : "realtime");
-            startService(monitorServiceIntent);
-
-            if (Settings.canDrawOverlays(this)) {
-                Intent floatIntent = new Intent(this, FloatingService.class);
-                floatIntent.putExtra("mode", isManualMode ? "manual" : "realtime");
-                startService(floatIntent);
-            }
-
-            updateUI(true);
-            saveRunningState(true);
-
-            String msg = "已启动！下拉通知栏点击「开始分析」截图";
-            if (!Settings.canDrawOverlays(this)) {
-                msg += "\n（结果弹窗需悬浮窗权限，可前往设置开启）";
-            }
-            Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+            startMonitoringService(savedResultCode, savedResultData);
         }
+    }
+
+    private void startMonitoringService(int resultCode, String resultData) {
+        Intent data = new Intent();
+        data.setData(Uri.parse(resultData));
+        
+        monitorServiceIntent = new Intent(this, ChatMonitorService.class);
+        monitorServiceIntent.putExtra("resultCode", resultCode);
+        monitorServiceIntent.putExtra("resultData", data);
+        monitorServiceIntent.putExtra("mode", isManualMode ? "manual" : "realtime");
+        startService(monitorServiceIntent);
+
+        if (Settings.canDrawOverlays(this)) {
+            Intent floatIntent = new Intent(this, FloatingService.class);
+            floatIntent.putExtra("mode", isManualMode ? "manual" : "realtime");
+            startService(floatIntent);
+        }
+
+        updateUI(true);
+        saveRunningState(true);
+
+        Toast.makeText(this, "✅ 服务已启动，可切换到其他应用", Toast.LENGTH_SHORT).show();
+        
+        moveTaskToBack(true);
     }
 
     private void stopService() {
@@ -516,10 +518,10 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == REQUEST_MEDIA_PROJECTION) {
             if (resultCode == RESULT_OK && data != null) {
                 SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                String dataStr = data.getData() != null ? data.getData().toString() : "screen_capture_granted";
                 prefs.edit()
                         .putInt("media_projection_result_code", resultCode)
-                        .putString("media_projection_result_data", 
-                                data.getData() != null ? data.getData().toString() : "screen_capture_granted")
+                        .putString("media_projection_result_data", dataStr)
                         .apply();
                 
                 monitorServiceIntent = new Intent(this, ChatMonitorService.class);
@@ -537,11 +539,9 @@ public class MainActivity extends AppCompatActivity {
                 updateUI(true);
                 saveRunningState(true);
 
-                String msg = "已启动！下拉通知栏点击「开始分析」截图";
-                if (!Settings.canDrawOverlays(this)) {
-                    msg += "\n（结果弹窗需悬浮窗权限，可前往设置开启）";
-                }
-                Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "✅ 服务已启动，可切换到其他应用", Toast.LENGTH_SHORT).show();
+                
+                moveTaskToBack(true);
             } else {
                 Toast.makeText(this, "需要屏幕录制权限", Toast.LENGTH_SHORT).show();
                 saveRunningState(false);
