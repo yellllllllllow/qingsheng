@@ -6,6 +6,8 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.BroadcastReceiver;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -35,6 +37,12 @@ public class ChatMonitorService extends Service {
     private static final int NOTIFICATION_ID = 1;
     private static final String CHANNEL_ID = "s_master_channel";
 
+    private static final String ACTION_CAPTURE = "com.example.s_master.CAPTURE_NOW";
+    private static final String ACTION_TOGGLE_MODE = "com.example.s_master.TOGGLE_MODE";
+    private static final String ACTION_COPY = "com.example.s_master.COPY_RESULT";
+    private static final String ACTION_STOP = "com.example.s_master.STOP_SERVICE";
+    private static final String ACTION_OPEN_APP = "com.example.s_master.OPEN_APP";
+
     private MediaProjection mediaProjection;
     private VirtualDisplay virtualDisplay;
     private ImageReader imageReader;
@@ -48,11 +56,31 @@ public class ChatMonitorService extends Service {
     private boolean isAnalyzing = false;
     private boolean isManualMode = true;
 
-    private BroadcastReceiver captureReceiver = new BroadcastReceiver() {
+    private String lastResultText = "";
+    private String lastResultLabel = "";
+
+    private BroadcastReceiver actionReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if ("com.example.s_master.CAPTURE_NOW".equals(intent.getAction())) {
+            String action = intent.getAction();
+            if (ACTION_CAPTURE.equals(action)) {
                 takeScreenshot();
+            } else if (ACTION_TOGGLE_MODE.equals(action)) {
+                isManualMode = !isManualMode;
+                String modeText = isManualMode ? "手动模式" : "实时模式";
+                if (!isManualMode) {
+                    startCaptureLoop();
+                }
+                showToast("已切换为" + modeText);
+                updateNotification("就绪");
+            } else if (ACTION_COPY.equals(action)) {
+                copyLastResult();
+            } else if (ACTION_STOP.equals(action)) {
+                stopService();
+            } else if (ACTION_OPEN_APP.equals(action)) {
+                Intent launchIntent = new Intent(ChatMonitorService.this, MainActivity.class);
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                startActivity(launchIntent);
             }
         }
     };
@@ -69,15 +97,21 @@ public class ChatMonitorService extends Service {
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, createNotification("就绪"));
 
-        registerReceiver(captureReceiver,
-                new IntentFilter("com.example.s_master.CAPTURE_NOW"),
-                Context.RECEIVER_NOT_EXPORTED);
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(ACTION_CAPTURE);
+        filter.addAction(ACTION_TOGGLE_MODE);
+        filter.addAction(ACTION_COPY);
+        filter.addAction(ACTION_STOP);
+        filter.addAction(ACTION_OPEN_APP);
+        registerReceiver(actionReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
     }
 
     private void createNotificationChannel() {
         NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "S master",
-                NotificationManager.IMPORTANCE_DEFAULT);
-        channel.setShowBadge(false);
+                NotificationManager.IMPORTANCE_LOW);
+        channel.setShowBadge(true);
+        channel.enableVibration(false);
+        channel.setSound(null, null);
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(channel);
     }
@@ -90,30 +124,77 @@ public class ChatMonitorService extends Service {
             builder = new Notification.Builder(this);
         }
 
-        Intent analyzeIntent = new Intent("com.example.s_master.CAPTURE_NOW");
-        analyzeIntent.setPackage(getPackageName());
-        PendingIntent analyzePi = PendingIntent.getBroadcast(this, 0, analyzeIntent,
-                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        String modeLabel = isManualMode ? "手动" : "实时";
 
         String contentText;
         if ("分析中".equals(status)) {
-            contentText = "⏳ AI 正在分析屏幕内容...";
+            contentText = "⏳ 正在分析屏幕内容...";
+        } else if (!lastResultText.isEmpty()) {
+            contentText = "💡 " + lastResultLabel;
         } else {
-            contentText = "下拉通知栏，点击「开始分析」按钮截图";
+            contentText = "点击「📷」分析当前屏幕（" + modeLabel + "）";
         }
 
-        return builder
-                .setContentTitle("S master")
+        PendingIntent openPi = PendingIntent.getBroadcast(this, 5,
+                new Intent(ACTION_OPEN_APP).setPackage(getPackageName()),
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+
+        PendingIntent capturePi = PendingIntent.getBroadcast(this, 0,
+                new Intent(ACTION_CAPTURE).setPackage(getPackageName()),
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+
+        PendingIntent togglePi = PendingIntent.getBroadcast(this, 1,
+                new Intent(ACTION_TOGGLE_MODE).setPackage(getPackageName()),
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+
+        PendingIntent copyPi = PendingIntent.getBroadcast(this, 2,
+                new Intent(ACTION_COPY).setPackage(getPackageName()),
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+
+        PendingIntent stopPi = PendingIntent.getBroadcast(this, 3,
+                new Intent(ACTION_STOP).setPackage(getPackageName()),
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+
+        builder.setContentTitle("S master · " + modeLabel)
                 .setContentText(contentText)
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
-                .addAction(android.R.drawable.ic_menu_camera, "📷 开始分析", analyzePi)
-                .build();
+                .setContentIntent(openPi)
+                .setShowWhen(true)
+                .addAction(android.R.drawable.ic_menu_camera, "📷 分析", capturePi)
+                .addAction(android.R.drawable.ic_menu_sort_by_size, "🔄 " + modeLabel, togglePi);
+
+        if (!lastResultText.isEmpty()) {
+            builder.addAction(android.R.drawable.ic_menu_edit, "📋 复制", copyPi);
+        }
+
+        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "⏹ 停止", stopPi);
+
+        if ("分析中".equals(status)) {
+            builder.setProgress(0, 0, true);
+        }
+
+        return builder.build();
     }
 
     private void updateNotification(String status) {
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.notify(NOTIFICATION_ID, createNotification(status));
+    }
+
+    private void showToast(String msg) {
+        android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show();
+    }
+
+    private void copyLastResult() {
+        if (lastResultText.isEmpty()) {
+            showToast("暂无分析结果可复制");
+            return;
+        }
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        ClipData clip = ClipData.newPlainText("suggestion", lastResultText);
+        clipboard.setPrimaryClip(clip);
+        showToast("✅ 已复制分析结果");
     }
 
     @Override
@@ -228,9 +309,14 @@ public class ChatMonitorService extends Service {
             aiService.analyzeScreenshot(safeBitmap, new AIService.AiCallback() {
                 @Override
                 public void onResult(String analysis, String suggestion) {
-                    String msg = (analysis.isEmpty() ? "" : "📊 " + analysis + "\n\n")
+                    String fullText = (analysis.isEmpty() ? "" : "📊 " + analysis + "\n\n")
                             + "💡 " + suggestion;
-                    sendSuggestion(msg);
+                    String label = suggestion.length() > 40
+                            ? suggestion.substring(0, 40) + "..." : suggestion;
+
+                    lastResultText = fullText;
+                    lastResultLabel = label;
+                    sendSuggestion(fullText);
                     isAnalyzing = false;
                     updateNotification("就绪");
                     if (!safeBitmap.isRecycled()) safeBitmap.recycle();
@@ -282,11 +368,16 @@ public class ChatMonitorService extends Service {
         sendBroadcast(intent);
     }
 
+    private void stopService() {
+        showToast("🛑 服务已停止");
+        stopSelf();
+    }
+
     @Override
     public void onDestroy() {
         super.onDestroy();
         try {
-            unregisterReceiver(captureReceiver);
+            unregisterReceiver(actionReceiver);
         } catch (Exception e) {}
         if (virtualDisplay != null) virtualDisplay.release();
         if (imageReader != null) imageReader.close();
