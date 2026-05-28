@@ -125,28 +125,7 @@ public class FloatingService extends Service {
         }
 
         int dockSize = (int)(56 * density);
-        dockView = new View(this);
-        
-        GradientDrawable dockBg = new GradientDrawable();
-        dockBg.setShape(GradientDrawable.OVAL);
-        dockBg.setColors(new int[]{0xFF6EE7B7, 0xFF7DD3FC});
-        dockBg.setGradientType(GradientDrawable.LINEAR_GRADIENT);
-        dockBg.setOrientation(GradientDrawable.Orientation.TL_BR);
-        dockBg.setStroke((int)(2 * density), 0xFFFFFFFF);
-        dockView.setBackground(dockBg);
-
-        LinearLayout container = new LinearLayout(this);
-        container.setLayoutParams(new ViewGroup.LayoutParams(dockSize, dockSize));
-        container.setGravity(Gravity.CENTER);
-        
-        View innerCircle = new View(this);
-        GradientDrawable innerBg = new GradientDrawable();
-        innerBg.setShape(GradientDrawable.OVAL);
-        innerBg.setColor(0xFFFFFFFF);
-        int innerSize = (int)(28 * density);
-        innerCircle.setLayoutParams(new LinearLayout.LayoutParams(innerSize, innerSize));
-        innerCircle.setBackground(innerBg);
-        container.addView(innerCircle);
+        dockView = new TaiChiView(this);
         
         int layoutFlag = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
