@@ -5,9 +5,12 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.content.BroadcastReceiver;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -25,6 +28,7 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -65,7 +69,20 @@ public class FloatingService extends Service {
                 if (suggestion != null) {
                     lastSuggestion = suggestion;
                     isLoading = false;
-                    showResultPopup(suggestion);
+
+                    boolean silentMode = getSharedPreferences("S_masterPrefs", MODE_PRIVATE)
+                            .getBoolean("silent_mode", false);
+
+                    if (silentMode) {
+                        String copyText = extractSuggestion(suggestion);
+                        if (!copyText.isEmpty()) {
+                            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                            clipboard.setPrimaryClip(ClipData.newPlainText("suggestion", copyText));
+                        }
+                        Toast.makeText(FloatingService.this, "🔇 已静默复制到剪贴板", Toast.LENGTH_SHORT).show();
+                    } else {
+                        showResultPopup(suggestion);
+                    }
                 }
             }
         }

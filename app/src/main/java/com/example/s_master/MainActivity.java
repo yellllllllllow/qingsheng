@@ -5,6 +5,9 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import android.Manifest;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -29,6 +32,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.widget.SwitchCompat;
 
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
@@ -46,6 +50,12 @@ public class MainActivity extends AppCompatActivity {
     private static final String PREFS_NAME = "S_masterPrefs";
     private static final String KEY_WAS_RUNNING = "was_running";
     private static final String KEY_CHAT_HISTORY = "chat_history";
+    private static final String KEY_SILENT_MODE = "silent_mode";
+
+    static boolean isSilentMode(Context context) {
+        return context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getBoolean(KEY_SILENT_MODE, false);
+    }
 
     private AIService aiService;
     private MediaProjectionManager projectionManager;
@@ -331,8 +341,7 @@ public class MainActivity extends AppCompatActivity {
         TextView fetchStatus = sheet.findViewById(R.id.bs_fetch_status);
         Spinner visionSpinner = sheet.findViewById(R.id.bs_vision_model);
         Spinner reasoningSpinner = sheet.findViewById(R.id.bs_reasoning_model);
-        MaterialButton modeManual = sheet.findViewById(R.id.bs_mode_manual);
-        MaterialButton modeRealtime = sheet.findViewById(R.id.bs_mode_realtime);
+        SwitchCompat silentModeSwitch = sheet.findViewById(R.id.bs_silent_mode);
         MaterialButton saveBtn = sheet.findViewById(R.id.bs_save_btn);
         MaterialButton cancelBtn = sheet.findViewById(R.id.bs_cancel_btn);
 
@@ -369,6 +378,9 @@ public class MainActivity extends AppCompatActivity {
         apiKeyInput.setText(aiService.getApiKey());
         customUrlInput.setText(aiService.getCustomUrl());
 
+        silentModeSwitch.setChecked(getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getBoolean(KEY_SILENT_MODE, false));
+
         String savedVisionModel = aiService.getVisionModel();
         String savedReasoningModel = aiService.getReasoningModel();
 
@@ -404,18 +416,6 @@ public class MainActivity extends AppCompatActivity {
                     R.layout.spinner_dropdown_item, defaultModels);
             reasoningSpinner.setAdapter(emptyAdapter);
         }
-
-        updateModeButtons(modeManual, modeRealtime);
-
-        modeManual.setOnClickListener(v -> {
-            isManualMode = true;
-            updateModeButtons(modeManual, modeRealtime);
-        });
-
-        modeRealtime.setOnClickListener(v -> {
-            isManualMode = false;
-            updateModeButtons(modeManual, modeRealtime);
-        });
 
         Button testVisionBtn = sheet.findViewById(R.id.bs_test_vision);
         Button testTextBtn = sheet.findViewById(R.id.bs_test_text);
@@ -597,6 +597,9 @@ public class MainActivity extends AppCompatActivity {
             aiService.saveVisionPrompt(visionPromptInput.getText().toString().trim());
             aiService.saveTextPrompt(textPromptInput.getText().toString().trim());
 
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                    .edit().putBoolean(KEY_SILENT_MODE, silentModeSwitch.isChecked()).apply();
+
             String msg;
             if (key.isEmpty()) {
                 msg = "已切换为内置分析模式";
@@ -609,22 +612,6 @@ public class MainActivity extends AppCompatActivity {
 
         cancelBtn.setOnClickListener(v -> dialog.dismiss());
         dialog.show();
-    }
-
-    private void updateModeButtons(MaterialButton manual, MaterialButton realtime) {
-        int blue = getResources().getColor(R.color.purple_500);
-        int gray = getResources().getColor(R.color.text_hint);
-        if (isManualMode) {
-            manual.setBackgroundTintList(ColorStateList.valueOf(blue));
-            manual.setTextColor(getResources().getColor(R.color.white));
-            realtime.setBackgroundTintList(ColorStateList.valueOf(gray));
-            realtime.setTextColor(getResources().getColor(R.color.white));
-        } else {
-            manual.setBackgroundTintList(ColorStateList.valueOf(gray));
-            manual.setTextColor(getResources().getColor(R.color.white));
-            realtime.setBackgroundTintList(ColorStateList.valueOf(blue));
-            realtime.setTextColor(getResources().getColor(R.color.white));
-        }
     }
 
     private void checkFirstRunPermissions() {

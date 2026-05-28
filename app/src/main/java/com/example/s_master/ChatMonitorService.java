@@ -71,6 +71,11 @@ public class ChatMonitorService extends Service {
         }
     };
 
+    private boolean isSilentMode() {
+        return getSharedPreferences("S_masterPrefs", MODE_PRIVATE)
+                .getBoolean("silent_mode", false);
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -107,13 +112,15 @@ public class ChatMonitorService extends Service {
 
         boolean hasResult = !lastResultText.isEmpty();
 
+        boolean silent = isSilentMode();
+
         String contentText;
         if (isAnalyzing) {
             contentText = "⏳ 正在分析屏幕...";
         } else if (hasResult) {
-            contentText = "💡 " + lastResultLabel;
+            contentText = (silent ? "🔇 " : "💡 ") + lastResultLabel;
         } else {
-            contentText = "点击悬浮球分析当前屏幕";
+            contentText = silent ? "🔇 静默模式 | 点击悬浮球分析" : "点击悬浮球分析当前屏幕";
         }
 
         PendingIntent openPi = PendingIntent.getBroadcast(this, 5,
