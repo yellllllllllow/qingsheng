@@ -1,29 +1,38 @@
 <resources>
-    <style name="AppTheme" parent="Theme.MaterialComponents.Light.NoActionBar">
-        <item name="colorPrimary">@color/vivo_blue</item>
-        <item name="colorPrimaryDark">@color/purple_700</item>
-        <item name="colorAccent">@color/vivo_teal</item>
-        <item name="colorOnPrimary">#FFFFFF</item>
+    <style name="AppTheme" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorOnPrimary">@color/text_on_primary</item>
+        <item name="colorPrimaryContainer">@color/primary_light</item>
         <item name="colorSurface">@color/surface</item>
         <item name="colorOnSurface">@color/text_primary</item>
-        <item name="android:colorBackground">@color/background_light</item>
-        <item name="android:windowBackground">@color/background_light</item>
-        <item name="android:statusBarColor">@color/vivo_blue</item>
+        <item name="colorSurfaceVariant">@color/surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/text_secondary</item>
+        <item name="android:colorBackground">@color/background</item>
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@color/surface</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
 
-    <style name="ButtonPrimary" parent="Widget.MaterialComponents.Button">
-        <item name="android:textColor">#FFFFFF</item>
+    <style name="ButtonPrimary" parent="Widget.Material3.Button">
+        <item name="android:textColor">@color/text_on_primary</item>
         <item name="cornerRadius">20dp</item>
-        <item name="backgroundTint">@color/vivo_blue</item>
+        <item name="backgroundTint">@color/primary</item>
         <item name="android:textStyle">bold</item>
         <item name="android:fontFamily">sans-serif</item>
         <item name="android:elevation">0dp</item>
     </style>
 
-    <style name="ButtonSecondary" parent="Widget.MaterialComponents.Button.OutlinedButton">
+    <style name="ButtonSecondary" parent="Widget.Material3.Button.OutlinedButton">
         <item name="cornerRadius">20dp</item>
-        <item name="strokeColor">@color/card_border</item>
+        <item name="strokeColor">@color/divider</item>
         <item name="android:textColor">@color/text_secondary</item>
         <item name="android:fontFamily">sans-serif</item>
+    </style>
+
+    <style name="Widget.SMaster.ChatBubble" parent="">
+        <item name="android:padding">12dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:lineSpacingExtra">4dp</item>
     </style>
 </resources>

@@ -124,7 +124,7 @@ public class MainActivity extends AppCompatActivity {
     private void addMessage(int type, String text) {
         messages.add(new Message(type, text));
         chatAdapter.notifyItemInserted(messages.size() - 1);
-        chatList.scrollToPosition(messages.size() - 1);
+        chatList.smoothScrollToPosition(messages.size() - 1);
         saveChatHistory();
     }
 

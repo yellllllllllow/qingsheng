@@ -1,29 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="purple_500">#3366FF</color>
-    <color name="purple_700">#2952CC</color>
-    <color name="teal_200">#00C9A7</color>
-    <color name="teal_500">#14B8A6</color>
-    <color name="teal_700">#00A386</color>
-    <color name="green_500">#10B981</color>
-    <color name="yellow_500">#F59E0B</color>
-    <color name="red_500">#EF4444</color>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
-    <color name="green">#3366FF</color>
-    <color name="red">#F44336</color>
-    <color name="btn_start">#3366FF</color>
-    <color name="btn_end">#2952CC</color>
+    <!-- Primary -->
+    <color name="primary">#3366FF</color>
+    <color name="primary_dark">#2952CC</color>
+    <color name="primary_light">#E8F0FE</color>
+
+    <!-- Surface -->
+    <color name="background">#F5F7FA</color>
     <color name="surface">#FFFFFF</color>
-    <color name="background_light">#F2F4F8</color>
+    <color name="surface_variant">#F2F4F8</color>
+
+    <!-- Text -->
     <color name="text_primary">#1A1A2E</color>
-    <color name="text_secondary">#6B7280</color>
-    <color name="text_hint">#9CA3AF</color>
-    <color name="card_border">#E8ECF2</color>
-    <color name="accent_green">#3366FF</color>
-    <color name="accent_orange">#FF9800</color>
-    <color name="toolbar_bg">#FFFFFF</color>
+    <color name="text_secondary">#8E8E93</color>
+    <color name="text_hint">#C7C7CC</color>
+    <color name="text_on_primary">#FFFFFF</color>
+
+    <!-- Status -->
+    <color name="status_green">#34C759</color>
+    <color name="status_yellow">#FF9500</color>
+    <color name="status_red">#FF3B30</color>
+    <color name="status_grey">#C7C7CC</color>
+
+    <!-- Bubble -->
+    <color name="bubble_user">#3366FF</color>
+    <color name="bubble_agent">#FFFFFF</color>
+    <color name="bubble_system">#F0F0F0</color>
+
+    <!-- Misc -->
+    <color name="white">#FFFFFF</color>
+    <color name="divider">#E8ECF2</color>
+    <color name="shadow">#1A000000</color>
+    <color name="accent_green">#34C759</color>
+    <color name="accent_blue">#3366FF</color>
+    <color name="accent_orange">#FF9500</color>
+    <color name="background_light">#F5F7FA</color>
     <color name="vivo_blue">#3366FF</color>
-    <color name="vivo_teal">#00C9A7</color>
-    <color name="vivo_light_bg">#EEF1F8</color>
+    <color name="purple_700">#2952CC</color>
+    <color name="purple_500">#3366FF</color>
+    <color name="vivo_teal">#34C759</color>
+    <color name="card_border">#E8ECF2</color>
 </resources>
