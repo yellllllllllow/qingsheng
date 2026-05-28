@@ -400,6 +400,69 @@ public class AIService {
         return body.toString();
     }
 
+    public interface ChatCallback {
+        void onResponse(String reply);
+        void onError(String error);
+    }
+
+    public void chatWithAgent(List<android.util.Pair<String, String>> conversation, ChatCallback callback) {
+        if (!hasApiKey()) {
+            callback.onError("请先在设置中填写 API Key");
+            return;
+        }
+        try {
+            String model = getReasoningModelId();
+            JSONObject body = new JSONObject();
+            body.put("model", model);
+            body.put("max_tokens", 1000);
+            body.put("temperature", 0.8);
+
+            JSONArray messages = new JSONArray();
+            JSONObject sysMsg = new JSONObject();
+            sysMsg.put("role", "system");
+            String prompt = getTextPrompt();
+            if (!prompt.contains("Agent") && !prompt.contains("助")) {
+                prompt = "你是S master智能助手，基于屏幕分析结果为用户提供聊天建议。" +
+                        "你擅长分析对话内容，给出高情商回复建议。" +
+                        "回答要简洁、实用、有温度。\n\n" + prompt;
+            }
+            sysMsg.put("content", prompt);
+            messages.put(sysMsg);
+
+            for (android.util.Pair<String, String> turn : conversation) {
+                JSONObject msg = new JSONObject();
+                msg.put("role", turn.first);
+                msg.put("content", turn.second);
+                messages.put(msg);
+            }
+            body.put("messages", messages);
+
+            NetworkUtils.callChatApi(getChatUrl(), apiKey, body.toString(), new NetworkUtils.NetworkCallback<String>() {
+                @Override
+                public void onSuccess(String result) {
+                    try {
+                        JSONObject json = new JSONObject(result);
+                        String reply = json.getJSONArray("choices")
+                                .getJSONObject(0)
+                                .getJSONObject("message")
+                                .getString("content");
+                        callback.onResponse(reply);
+                    } catch (Exception e) {
+                        callback.onResponse(result);
+                    }
+                }
+
+                @Override
+                public void onError(String error) {
+                    callback.onError(error != null ? error : "对话请求失败");
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Chat error", e);
+            callback.onError(e.getMessage());
+        }
+    }
+
     private String[] parseResponse(String response) {
         String analysis = "";
         StringBuilder suggestionsBuilder = new StringBuilder();

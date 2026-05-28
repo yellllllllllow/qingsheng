@@ -1,6 +1,8 @@
 package com.example.s_master;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import android.Manifest;
 import android.content.Intent;
@@ -11,15 +13,22 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.text.TextUtils;
+import android.util.Pair;
+import android.view.KeyEvent;
+import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.AdapterView;
-import androidx.appcompat.app.AlertDialog;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.appcompat.app.AlertDialog;
 
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
@@ -33,14 +42,12 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_OVERLAY_PERMISSION = 101;
     private static final int REQUEST_MEDIA_PROJECTION = 103;
+    private static final int REQUEST_IMAGE_PICK = 105;
     private static final String PREFS_NAME = "S_masterPrefs";
     private static final String KEY_WAS_RUNNING = "was_running";
+    private static final String KEY_CHAT_HISTORY = "chat_history";
 
-    private MaterialButton startBtn, stopBtn;
-    private TextView statusText, hintText;
-    private View statusDot;
     private AIService aiService;
-
     private MediaProjectionManager projectionManager;
     private Intent monitorServiceIntent;
     private boolean isRunning = false;
@@ -49,34 +56,62 @@ public class MainActivity extends AppCompatActivity {
 
     private List<String> visionModels = new ArrayList<>();
     private List<String> textModels = new ArrayList<>();
-    
-    private TextView visionModelName, textModelName;
-    private View visionStatusDot, textStatusDot;
-    private TextView visionStatusText, textStatusText;
-    private TextView modelStatusText;
+
+    private RecyclerView chatList;
+    private ChatAdapter chatAdapter;
+    private List<Message> messages = new ArrayList<>();
+    private EditText inputText;
+    private MaterialButton sendBtn, attachBtn;
+    private TextView statusText;
+    private View statusDot;
+
+    private List<Pair<String, String>> conversationHistory = new ArrayList<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        startBtn = findViewById(R.id.start_btn);
-        stopBtn = findViewById(R.id.stop_btn);
         statusText = findViewById(R.id.status_text);
         statusDot = findViewById(R.id.status_dot);
-        hintText = findViewById(R.id.hint_text);
+        chatList = findViewById(R.id.chat_list);
+        inputText = findViewById(R.id.input_text);
+        sendBtn = findViewById(R.id.send_btn);
+        attachBtn = findViewById(R.id.attach_btn);
 
         aiService = new AIService(this);
         projectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
 
-        startBtn.setOnClickListener(v -> startService());
-        stopBtn.setOnClickListener(v -> stopService());
+        chatAdapter = new ChatAdapter(messages);
+        chatList.setLayoutManager(new LinearLayoutManager(this));
+        chatList.setAdapter(chatAdapter);
 
         findViewById(R.id.settings_btn).setOnClickListener(v -> showSettingsSheet());
-        
-        initModelStatusViews();
-        loadSavedModelStatus();
-        
+
+        sendBtn.setOnClickListener(v -> sendMessage());
+        attachBtn.setOnClickListener(v -> pickImage());
+
+        inputText.setOnKeyListener((v, keyCode, event) -> {
+            if (event.getAction() == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_ENTER) {
+                if (!event.isShiftPressed()) {
+                    sendMessage();
+                    return true;
+                }
+            }
+            return false;
+        });
+
+        loadChatHistory();
+        if (messages.isEmpty()) {
+            addMessage(Message.TYPE_SYSTEM, "欢迎使用 S master Agent！\n\n📌 点击输入框输入文字对话\n📷 点击图片按钮上传截图分析\n⚙️ 点击右上角设置 API Key");
+
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            boolean hasKey = !aiService.getApiKey().isEmpty();
+            if (!hasKey) {
+                addMessage(Message.TYPE_SYSTEM, "⚠️ 未检测到 API Key\n请点击右上角 ⚙️ 进入设置并填写 API Key");
+            }
+        }
+
         checkFirstRunPermissions();
     }
 
@@ -86,9 +121,185 @@ public class MainActivity extends AppCompatActivity {
         checkPermissionsAndAutoStart();
     }
 
+    private void addMessage(int type, String text) {
+        messages.add(new Message(type, text));
+        chatAdapter.notifyItemInserted(messages.size() - 1);
+        chatList.scrollToPosition(messages.size() - 1);
+        saveChatHistory();
+    }
+
+    private void sendMessage() {
+        String text = inputText.getText().toString().trim();
+        if (text.isEmpty()) return;
+
+        inputText.setText("");
+        addMessage(Message.TYPE_USER, text);
+
+        if (!aiService.hasApiKey()) {
+            addMessage(Message.TYPE_AGENT, "⚠️ 请先在设置中填写 API Key\n点击右上角 ⚙️ 进入设置");
+            return;
+        }
+
+        conversationHistory.add(new Pair<>("user", text));
+
+        addMessage(Message.TYPE_SYSTEM, "⏳ Agent 思考中...");
+        final int loadingIdx = messages.size() - 1;
+
+        aiService.chatWithAgent(conversationHistory, new AIService.ChatCallback() {
+            @Override
+            public void onResponse(String reply) {
+                runOnUiThread(() -> {
+                    messages.remove(loadingIdx);
+                    chatAdapter.notifyItemRemoved(loadingIdx);
+
+                    conversationHistory.add(new Pair<>("assistant", reply));
+                    addMessage(Message.TYPE_AGENT, reply);
+                });
+            }
+
+            @Override
+            public void onError(String error) {
+                runOnUiThread(() -> {
+                    messages.remove(loadingIdx);
+                    chatAdapter.notifyItemRemoved(loadingIdx);
+                    addMessage(Message.TYPE_AGENT, "❌ " + error);
+                });
+            }
+        });
+    }
+
+    private void pickImage() {
+        Intent intent = new Intent(Intent.ACTION_PICK);
+        intent.setType("image/*");
+        startActivityForResult(intent, REQUEST_IMAGE_PICK);
+    }
+
+    private void analyzeImage(Uri imageUri) {
+        addMessage(Message.TYPE_USER, "📷 [上传了一张截图]");
+
+        if (!aiService.hasApiKey()) {
+            addMessage(Message.TYPE_AGENT, "⚠️ 请先在设置中填写 API Key");
+            return;
+        }
+
+        addMessage(Message.TYPE_SYSTEM, "⏳ 正在分析截图...");
+        final int loadingIdx = messages.size() - 1;
+
+        try {
+            android.graphics.Bitmap bitmap = android.provider.MediaStore.Images.Media.getBitmap(
+                    getContentResolver(), imageUri);
+            aiService.analyzeScreenshot(bitmap, new AIService.AiCallback() {
+                @Override
+                public void onResult(String analysis, String suggestion) {
+                    runOnUiThread(() -> {
+                        messages.remove(loadingIdx);
+                        chatAdapter.notifyItemRemoved(loadingIdx);
+
+                        String result = "";
+                        if (!analysis.isEmpty()) {
+                            result += "📊 分析：\n" + analysis + "\n\n";
+                        }
+                        result += "💡 建议：\n" + suggestion;
+
+                        conversationHistory.add(new Pair<>("user", "【截图分析结果】" + analysis + " " + suggestion));
+                        conversationHistory.add(new Pair<>("assistant", "分析完成，以上是截图分析结果和建议"));
+                        addMessage(Message.TYPE_AGENT, result);
+                    });
+                }
+
+                @Override
+                public void onError(String error) {
+                    runOnUiThread(() -> {
+                        messages.remove(loadingIdx);
+                        chatAdapter.notifyItemRemoved(loadingIdx);
+                        addMessage(Message.TYPE_AGENT, "❌ 分析失败：" + error);
+                    });
+                }
+            });
+        } catch (Exception e) {
+            messages.remove(loadingIdx);
+            chatAdapter.notifyItemRemoved(loadingIdx);
+            addMessage(Message.TYPE_AGENT, "❌ 读取图片失败：" + e.getMessage());
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == REQUEST_IMAGE_PICK && resultCode == RESULT_OK && data != null) {
+            analyzeImage(data.getData());
+            return;
+        }
+
+        if (requestCode == REQUEST_OVERLAY_PERMISSION) {
+            checkPermissionsAndShowDialog();
+            return;
+        }
+
+        if (requestCode == REQUEST_MEDIA_PROJECTION) {
+            if (resultCode == RESULT_OK && data != null) {
+                SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                String dataStr = data.getData() != null ? data.getData().toString() : "screen_capture_granted";
+                prefs.edit()
+                        .putInt("media_projection_result_code", resultCode)
+                        .putString("media_projection_result_data", dataStr)
+                        .apply();
+
+                monitorServiceIntent = new Intent(this, ChatMonitorService.class);
+                monitorServiceIntent.putExtra("resultCode", resultCode);
+                monitorServiceIntent.putExtra("resultData", data);
+                monitorServiceIntent.putExtra("mode", isManualMode ? "manual" : "realtime");
+                startService(monitorServiceIntent);
+
+                if (Settings.canDrawOverlays(this)) {
+                    Intent floatIntent = new Intent(this, FloatingService.class);
+                    floatIntent.putExtra("mode", isManualMode ? "manual" : "realtime");
+                    startService(floatIntent);
+                }
+
+                updateUI(true);
+                saveRunningState(true);
+
+                Toast.makeText(this, "✅ 服务已启动，可切换到其他应用", Toast.LENGTH_SHORT).show();
+                moveTaskToBack(true);
+            }
+        }
+    }
+
+    private void saveChatHistory() {
+        StringBuilder sb = new StringBuilder();
+        int start = Math.max(0, messages.size() - 100);
+        for (int i = start; i < messages.size(); i++) {
+            Message m = messages.get(i);
+            sb.append(m.type).append("|").append(m.text.replace("\n", "\\n")).append("\n");
+        }
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .edit().putString(KEY_CHAT_HISTORY, sb.toString()).apply();
+    }
+
+    private void loadChatHistory() {
+        String raw = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getString(KEY_CHAT_HISTORY, "");
+        if (raw.isEmpty()) return;
+        messages.clear();
+        for (String line : raw.split("\n")) {
+            int sep = line.indexOf("|");
+            if (sep > 0) {
+                try {
+                    int type = Integer.parseInt(line.substring(0, sep));
+                    String text = line.substring(sep + 1).replace("\\n", "\n");
+                    messages.add(new Message(type, text));
+                } catch (Exception ignored) {}
+            }
+        }
+        if (messages.size() > 200) {
+            messages = new ArrayList<>(messages.subList(messages.size() - 200, messages.size()));
+        }
+    }
+
     private void checkPermissionsAndAutoStart() {
         boolean notifOk = true;
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                     != PackageManager.PERMISSION_GRANTED) {
@@ -96,21 +307,13 @@ public class MainActivity extends AppCompatActivity {
                 requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 104);
             }
         }
-
         permissionsReady = notifOk;
 
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         boolean wasRunning = prefs.getBoolean(KEY_WAS_RUNNING, false);
 
         if (wasRunning && !isRunning && permissionsReady) {
-            hintText.setText("上次服务已中断，正在重新启动...");
             startService();
-        } else if (isRunning) {
-            hintText.setText("服务运行中，下拉通知栏点击「开始分析」");
-        } else if (!permissionsReady) {
-            hintText.setText("请完成权限授予后点击「启动」");
-        } else {
-            hintText.setText("点击下方「启动」按钮开启服务");
         }
     }
 
@@ -245,13 +448,11 @@ public class MainActivity extends AppCompatActivity {
             String shortModel = model.length() > 20 ? model.substring(0, 20) + "..." : model;
             testVisionBtn.setText("⏳ 测试: " + shortModel);
             testVisionBtn.setEnabled(false);
-            setVisionModelStatus(model, "testing");
             aiService.testModel(model, true, new AIService.AiCallback() {
                 @Override
                 public void onResult(String analysis, String suggestion) {
                     runOnUiThread(() -> {
                         testVisionBtn.setText("✅ " + shortModel);
-                        setVisionModelStatus(model, "success");
                         Toast.makeText(MainActivity.this, "图形模型测试通过: " + model, Toast.LENGTH_SHORT).show();
                         new android.os.Handler().postDelayed(() -> {
                             testVisionBtn.setText("▶ 测试图形模型");
@@ -263,7 +464,6 @@ public class MainActivity extends AppCompatActivity {
                 public void onError(String error) {
                     runOnUiThread(() -> {
                         testVisionBtn.setText("❌ " + shortModel);
-                        setVisionModelStatus(model, "failed");
                         new android.os.Handler().postDelayed(() -> {
                             testVisionBtn.setText("▶ 测试图形模型");
                             testVisionBtn.setEnabled(true);
@@ -283,13 +483,11 @@ public class MainActivity extends AppCompatActivity {
             String shortModel = model.length() > 20 ? model.substring(0, 20) + "..." : model;
             testTextBtn.setText("⏳ 测试: " + shortModel);
             testTextBtn.setEnabled(false);
-            setTextModelStatus(model, "testing");
             aiService.testModel(model, false, new AIService.AiCallback() {
                 @Override
                 public void onResult(String analysis, String suggestion) {
                     runOnUiThread(() -> {
                         testTextBtn.setText("✅ " + shortModel);
-                        setTextModelStatus(model, "success");
                         Toast.makeText(MainActivity.this, "推理模型测试通过: " + model, Toast.LENGTH_SHORT).show();
                         new android.os.Handler().postDelayed(() -> {
                             testTextBtn.setText("▶ 测试推理模型");
@@ -301,7 +499,6 @@ public class MainActivity extends AppCompatActivity {
                 public void onError(String error) {
                     runOnUiThread(() -> {
                         testTextBtn.setText("❌ " + shortModel);
-                        setTextModelStatus(model, "failed");
                         new android.os.Handler().postDelayed(() -> {
                             testTextBtn.setText("▶ 测试推理模型");
                             testTextBtn.setEnabled(true);
@@ -432,12 +629,12 @@ public class MainActivity extends AppCompatActivity {
     private void checkFirstRunPermissions() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         boolean firstRun = prefs.getBoolean("first_run", true);
-        
+
         if (!firstRun) {
             checkPermissionsAndShowDialog();
             return;
         }
-        
+
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("📱 权限授权")
                 .setMessage("为了让应用正常工作，需要授予以下权限：\n\n" +
@@ -453,97 +650,67 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void checkPermissionsAndShowDialog() {
-        List<String> missingPermissions = new ArrayList<>();
-        
-        if (!Settings.canDrawOverlays(this)) {
-            missingPermissions.add("悬浮窗权限");
-        }
-        
+        List<String> missing = new ArrayList<>();
+        if (!Settings.canDrawOverlays(this)) missing.add("悬浮窗权限");
+
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        int savedResultCode = prefs.getInt("media_projection_result_code", -1);
-        String savedResultData = prefs.getString("media_projection_result_data", null);
-        if (savedResultCode == -1 || savedResultData == null) {
-            missingPermissions.add("屏幕录制权限");
-        }
-        
+        int code = prefs.getInt("media_projection_result_code", -1);
+        String data = prefs.getString("media_projection_result_data", null);
+        if (code == -1 || data == null) missing.add("屏幕录制权限");
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED) {
-                missingPermissions.add("通知权限");
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                missing.add("通知权限");
             }
         }
-        
-        if (!missingPermissions.isEmpty()) {
-            StringBuilder message = new StringBuilder("检测到缺少以下权限：\n\n");
-            for (String perm : missingPermissions) {
-                message.append("• ").append(perm).append("\n");
-            }
-            message.append("\n是否立即前往授权？");
-            
-            AlertDialog.Builder builder = new AlertDialog.Builder(this);
-            builder.setTitle("⚠️ 缺少权限")
-                    .setMessage(message.toString())
-                    .setPositiveButton("前往授权", (dialog, which) -> {
-                        requestAllPermissions();
-                    })
-                    .setNegativeButton("稍后", null)
-                    .show();
+
+        if (!missing.isEmpty()) {
+            StringBuilder msg = new StringBuilder("缺少以下权限：\n");
+            for (String p : missing) msg.append("• ").append(p).append("\n");
+            msg.append("\n是否前往授权？");
+            new AlertDialog.Builder(this)
+                    .setTitle("⚠️ 缺少权限").setMessage(msg.toString())
+                    .setPositiveButton("前往授权", (d, w) -> requestAllPermissions())
+                    .setNegativeButton("稍后", null).show();
         }
     }
 
     private void requestAllPermissions() {
         if (!Settings.canDrawOverlays(this)) {
-            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:" + getPackageName()));
-            startActivityForResult(intent, REQUEST_OVERLAY_PERMISSION);
+            startActivityForResult(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName())), REQUEST_OVERLAY_PERMISSION);
             return;
         }
-        
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        int savedResultCode = prefs.getInt("media_projection_result_code", -1);
-        String savedResultData = prefs.getString("media_projection_result_data", null);
-        if (savedResultCode == -1 || savedResultData == null) {
-            Intent captureIntent = projectionManager.createScreenCaptureIntent();
-            startActivityForResult(captureIntent, REQUEST_MEDIA_PROJECTION);
+        int code = prefs.getInt("media_projection_result_code", -1);
+        String data = prefs.getString("media_projection_result_data", null);
+        if (code == -1 || data == null) {
+            startActivityForResult(projectionManager.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION);
             return;
         }
-        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 104);
-                return;
             }
-        }
-        
-        Toast.makeText(this, "✅ 所有权限已就绪", Toast.LENGTH_SHORT).show();
-    }
-
-    private void requestScreenCapture() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:" + getPackageName()));
-            startActivityForResult(intent, REQUEST_OVERLAY_PERMISSION);
         }
     }
 
     private void startService() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        int savedResultCode = prefs.getInt("media_projection_result_code", -1);
-        String savedResultData = prefs.getString("media_projection_result_data", null);
-        
-        if (savedResultCode == -1 || savedResultData == null) {
-            Intent captureIntent = projectionManager.createScreenCaptureIntent();
-            startActivityForResult(captureIntent, REQUEST_MEDIA_PROJECTION);
+        int code = prefs.getInt("media_projection_result_code", -1);
+        String data = prefs.getString("media_projection_result_data", null);
+
+        if (code == -1 || data == null) {
+            startActivityForResult(projectionManager.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION);
         } else {
-            startMonitoringService(savedResultCode, savedResultData);
+            startMonitoringService(code, data);
         }
     }
 
     private void startMonitoringService(int resultCode, String resultData) {
         Intent data = new Intent();
         data.setData(Uri.parse(resultData));
-        
+
         monitorServiceIntent = new Intent(this, ChatMonitorService.class);
         monitorServiceIntent.putExtra("resultCode", resultCode);
         monitorServiceIntent.putExtra("resultData", data);
@@ -560,7 +727,6 @@ public class MainActivity extends AppCompatActivity {
         saveRunningState(true);
 
         Toast.makeText(this, "✅ 服务已启动，可切换到其他应用", Toast.LENGTH_SHORT).show();
-        
         moveTaskToBack(true);
     }
 
@@ -569,178 +735,67 @@ public class MainActivity extends AppCompatActivity {
             stopService(monitorServiceIntent);
             monitorServiceIntent = null;
         }
-
-        Intent floatIntent = new Intent(this, FloatingService.class);
-        stopService(floatIntent);
-
-        isRunning = false;
+        stopService(new Intent(this, FloatingService.class));
         updateUI(false);
         saveRunningState(false);
-        Toast.makeText(this, "服务已停止", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "🛑 服务已停止", Toast.LENGTH_SHORT).show();
     }
 
     private void updateUI(boolean running) {
         isRunning = running;
-        statusText.setText(running ? "运行中" : "未启动");
-        statusDot.setBackgroundResource(running ? R.drawable.dot_green : R.drawable.dot_red);
-
-        startBtn.setEnabled(!running);
-        stopBtn.setEnabled(running);
-
-        if (hintText != null) {
-            if (running) {
-                hintText.setText("✅ 服务运行中，下拉通知栏点击「开始分析」");
-            } else {
-                hintText.setText("点击下方「启动」按钮开启服务");
-            }
+        if (running) {
+            statusText.setText("运行中");
+            statusDot.setBackgroundResource(R.drawable.dot_green);
+        } else {
+            statusText.setText("未启动");
+            statusDot.setBackgroundResource(R.drawable.dot_red);
         }
     }
 
     private void saveRunningState(boolean running) {
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                .edit()
-                .putBoolean(KEY_WAS_RUNNING, running)
-                .apply();
+                .edit().putBoolean(KEY_WAS_RUNNING, running).apply();
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_MEDIA_PROJECTION) {
-            if (resultCode == RESULT_OK && data != null) {
-                SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-                String dataStr = data.getData() != null ? data.getData().toString() : "screen_capture_granted";
-                prefs.edit()
-                        .putInt("media_projection_result_code", resultCode)
-                        .putString("media_projection_result_data", dataStr)
-                        .apply();
-                
-                monitorServiceIntent = new Intent(this, ChatMonitorService.class);
-                monitorServiceIntent.putExtra("resultCode", resultCode);
-                monitorServiceIntent.putExtra("resultData", data);
-                monitorServiceIntent.putExtra("mode", isManualMode ? "manual" : "realtime");
-                startService(monitorServiceIntent);
+    private static class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.ViewHolder> {
+        private List<Message> data;
+        ChatAdapter(List<Message> data) { this.data = data; }
 
-                if (Settings.canDrawOverlays(this)) {
-                    Intent floatIntent = new Intent(this, FloatingService.class);
-                    floatIntent.putExtra("mode", isManualMode ? "manual" : "realtime");
-                    startService(floatIntent);
-                }
+        @Override
+        public int getItemViewType(int position) {
+            return data.get(position).type;
+        }
 
-                updateUI(true);
-                saveRunningState(true);
-
-                Toast.makeText(this, "✅ 服务已启动，可切换到其他应用", Toast.LENGTH_SHORT).show();
-                
-                moveTaskToBack(true);
-            } else {
-                Toast.makeText(this, "需要屏幕录制权限", Toast.LENGTH_SHORT).show();
-                saveRunningState(false);
+        @Override
+        public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            LayoutInflater inflater = LayoutInflater.from(parent.getContext());
+            if (viewType == Message.TYPE_USER) {
+                return new ViewHolder(inflater.inflate(R.layout.chat_item_user, parent, false));
+            } else if (viewType == Message.TYPE_SYSTEM) {
+                return new ViewHolder(inflater.inflate(R.layout.chat_item_system, parent, false));
             }
-        } else if (requestCode == REQUEST_OVERLAY_PERMISSION) {
-            if (isRunning && Settings.canDrawOverlays(this)) {
-                Intent floatIntent = new Intent(this, FloatingService.class);
-                startService(floatIntent);
+            return new ViewHolder(inflater.inflate(R.layout.chat_item_agent, parent, false));
+        }
+
+        @Override
+        public void onBindViewHolder(ViewHolder holder, int position) {
+            Message msg = data.get(position);
+            if (holder.textView != null) {
+                holder.textView.setText(msg.text);
             }
         }
-    }
 
-    private void initModelStatusViews() {
-        visionModelName = findViewById(R.id.vision_model_name);
-        textModelName = findViewById(R.id.text_model_name);
-        visionStatusDot = findViewById(R.id.vision_status_dot);
-        textStatusDot = findViewById(R.id.text_status_dot);
-        visionStatusText = findViewById(R.id.vision_status_text);
-        textStatusText = findViewById(R.id.text_status_text);
-        modelStatusText = findViewById(R.id.model_status_text);
-        
-        findViewById(R.id.vision_model_card).setOnClickListener(v -> showSettingsSheet());
-        findViewById(R.id.text_model_card).setOnClickListener(v -> showSettingsSheet());
-    }
+        @Override
+        public int getItemCount() { return data.size(); }
 
-    private void loadSavedModelStatus() {
-        String visionModel = aiService.getVisionModel();
-        String textModel = aiService.getReasoningModel();
-        
-        visionModelName.setText(visionModel.isEmpty() ? "未选择" : visionModel);
-        textModelName.setText(textModel.isEmpty() ? "未选择" : textModel);
-        
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String visionStatus = prefs.getString("vision_model_status", "untested");
-        String textStatus = prefs.getString("text_model_status", "untested");
-        
-        updateModelStatus(visionStatusDot, visionStatusText, visionStatus);
-        updateModelStatus(textStatusDot, textStatusText, textStatus);
-        updateOverallStatus();
-    }
-
-    private void updateModelStatus(View dot, TextView text, String status) {
-        switch (status) {
-            case "success":
-                dot.setBackgroundResource(R.drawable.dot_green);
-                text.setText("✓ 测试通过");
-                text.setTextColor(getResources().getColor(R.color.green_500));
-                break;
-            case "testing":
-                dot.setBackgroundResource(R.drawable.dot_yellow);
-                text.setText("⏳ 测试中");
-                text.setTextColor(getResources().getColor(R.color.yellow_500));
-                break;
-            case "failed":
-                dot.setBackgroundResource(R.drawable.dot_red);
-                text.setText("✗ 测试失败");
-                text.setTextColor(getResources().getColor(R.color.red_500));
-                break;
-            default:
-                dot.setBackgroundResource(R.drawable.dot_grey);
-                text.setText("未测试");
-                text.setTextColor(getResources().getColor(R.color.text_hint));
+        static class ViewHolder extends RecyclerView.ViewHolder {
+            TextView textView;
+            ViewHolder(View itemView) {
+                super(itemView);
+                textView = itemView.findViewById(R.id.agent_text);
+                if (textView == null) textView = itemView.findViewById(R.id.user_text);
+                if (textView == null) textView = itemView.findViewById(R.id.system_text);
+            }
         }
-    }
-
-    public void setVisionModelStatus(String modelName, String status) {
-        visionModelName.setText(modelName);
-        updateModelStatus(visionStatusDot, visionStatusText, status);
-        saveModelStatus("vision", modelName, status);
-        updateOverallStatus();
-    }
-
-    public void setTextModelStatus(String modelName, String status) {
-        textModelName.setText(modelName);
-        updateModelStatus(textStatusDot, textStatusText, status);
-        saveModelStatus("text", modelName, status);
-        updateOverallStatus();
-    }
-
-    private void saveModelStatus(String type, String modelName, String status) {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        prefs.edit()
-                .putString(type + "_model_name", modelName)
-                .putString(type + "_model_status", status)
-                .apply();
-    }
-
-    private void updateOverallStatus() {
-        String visionStatus = visionStatusText.getText().toString();
-        String textStatus = textStatusText.getText().toString();
-        
-        if (visionStatus.equals("✓ 测试通过") && textStatus.equals("✓ 测试通过")) {
-            modelStatusText.setText("全部通过");
-            modelStatusText.setTextColor(getResources().getColor(R.color.green_500));
-        } else if (visionStatus.equals("⏳ 测试中") || textStatus.equals("⏳ 测试中")) {
-            modelStatusText.setText("测试中");
-            modelStatusText.setTextColor(getResources().getColor(R.color.yellow_500));
-        } else if (visionStatus.equals("✗ 测试失败") || textStatus.equals("✗ 测试失败")) {
-            modelStatusText.setText("部分失败");
-            modelStatusText.setTextColor(getResources().getColor(R.color.red_500));
-        } else {
-            modelStatusText.setText("未测试");
-            modelStatusText.setTextColor(getResources().getColor(R.color.text_hint));
-        }
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
     }
 }
