@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.view.View;
 import android.widget.AdapterView;
+import androidx.appcompat.app.AlertDialog;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -76,7 +77,7 @@ public class MainActivity extends AppCompatActivity {
         initModelStatusViews();
         loadSavedModelStatus();
         
-        requestScreenCapture();
+        checkFirstRunPermissions();
     }
 
     @Override
@@ -426,6 +427,96 @@ public class MainActivity extends AppCompatActivity {
             realtime.setBackgroundTintList(ColorStateList.valueOf(blue));
             realtime.setTextColor(getResources().getColor(R.color.white));
         }
+    }
+
+    private void checkFirstRunPermissions() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        boolean firstRun = prefs.getBoolean("first_run", true);
+        
+        if (!firstRun) {
+            checkPermissionsAndShowDialog();
+            return;
+        }
+        
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("📱 权限授权")
+                .setMessage("为了让应用正常工作，需要授予以下权限：\n\n" +
+                        "• 悬浮窗权限 - 显示悬浮按钮\n" +
+                        "• 屏幕录制权限 - 读取屏幕内容\n" +
+                        "• 通知权限 - 显示服务通知")
+                .setPositiveButton("开始授权", (dialog, which) -> {
+                    prefs.edit().putBoolean("first_run", false).apply();
+                    requestAllPermissions();
+                })
+                .setCancelable(false)
+                .show();
+    }
+
+    private void checkPermissionsAndShowDialog() {
+        List<String> missingPermissions = new ArrayList<>();
+        
+        if (!Settings.canDrawOverlays(this)) {
+            missingPermissions.add("悬浮窗权限");
+        }
+        
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        int savedResultCode = prefs.getInt("media_projection_result_code", -1);
+        String savedResultData = prefs.getString("media_projection_result_data", null);
+        if (savedResultCode == -1 || savedResultData == null) {
+            missingPermissions.add("屏幕录制权限");
+        }
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                missingPermissions.add("通知权限");
+            }
+        }
+        
+        if (!missingPermissions.isEmpty()) {
+            StringBuilder message = new StringBuilder("检测到缺少以下权限：\n\n");
+            for (String perm : missingPermissions) {
+                message.append("• ").append(perm).append("\n");
+            }
+            message.append("\n是否立即前往授权？");
+            
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("⚠️ 缺少权限")
+                    .setMessage(message.toString())
+                    .setPositiveButton("前往授权", (dialog, which) -> {
+                        requestAllPermissions();
+                    })
+                    .setNegativeButton("稍后", null)
+                    .show();
+        }
+    }
+
+    private void requestAllPermissions() {
+        if (!Settings.canDrawOverlays(this)) {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName()));
+            startActivityForResult(intent, REQUEST_OVERLAY_PERMISSION);
+            return;
+        }
+        
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        int savedResultCode = prefs.getInt("media_projection_result_code", -1);
+        String savedResultData = prefs.getString("media_projection_result_data", null);
+        if (savedResultCode == -1 || savedResultData == null) {
+            Intent captureIntent = projectionManager.createScreenCaptureIntent();
+            startActivityForResult(captureIntent, REQUEST_MEDIA_PROJECTION);
+            return;
+        }
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 104);
+                return;
+            }
+        }
+        
+        Toast.makeText(this, "✅ 所有权限已就绪", Toast.LENGTH_SHORT).show();
     }
 
     private void requestScreenCapture() {
