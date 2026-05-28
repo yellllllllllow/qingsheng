@@ -88,6 +88,19 @@ public class MainActivity extends AppCompatActivity {
 
         findViewById(R.id.settings_btn).setOnClickListener(v -> showSettingsSheet());
 
+        View startBtn = findViewById(R.id.start_btn);
+        startBtn.setOnClickListener(v -> {
+            if (isRunning) {
+                stopService();
+                startBtn.setBackgroundResource(R.drawable.start_btn_bg);
+                ((TextView) startBtn).setText("▶ 开始");
+            } else {
+                startService();
+                startBtn.setBackgroundResource(R.drawable.stop_btn_bg);
+                ((TextView) startBtn).setText("⏹ 停止");
+            }
+        });
+
         sendBtn.setOnClickListener(v -> sendMessage());
         attachBtn.setOnClickListener(v -> pickImage());
 
@@ -118,7 +131,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        checkPermissionsAndAutoStart();
     }
 
     private void addMessage(int type, String text) {
@@ -299,21 +311,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void checkPermissionsAndAutoStart() {
-        boolean notifOk = true;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                     != PackageManager.PERMISSION_GRANTED) {
-                notifOk = false;
                 requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 104);
             }
-        }
-        permissionsReady = notifOk;
-
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        boolean wasRunning = prefs.getBoolean(KEY_WAS_RUNNING, false);
-
-        if (wasRunning && !isRunning && permissionsReady) {
-            startService();
         }
     }
 
