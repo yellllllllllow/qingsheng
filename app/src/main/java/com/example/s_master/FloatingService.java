@@ -3,6 +3,7 @@ package com.example.s_master;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.BroadcastReceiver;
 import android.content.ClipData;
@@ -107,11 +108,16 @@ public class FloatingService extends Service {
         density = metrics.density;
 
         createNotificationChannel();
+        Intent openIntent = new Intent(this, MainActivity.class);
+        openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification notification = new Notification.Builder(this, "float_channel")
                 .setContentTitle("S master")
                 .setContentText("分析服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
+                .setContentIntent(pendingIntent)
                 .build();
         startForeground(2, notification);
 
@@ -135,7 +141,7 @@ public class FloatingService extends Service {
             } catch (Exception e) {}
         }
 
-        int dockSize = (int)(56 * density);
+        final int dockSize = (int)(56 * density);
         dockView = new TaiChiView(this);
 
         dockParams = new WindowManager.LayoutParams(
@@ -287,8 +293,8 @@ public class FloatingService extends Service {
     private View createOptionCard(String label, String text) {
         int dp8 = (int)(8 * density);
         int dp12 = (int)(12 * density);
-        int accentColor = getResources().getColor(R.color.purple_500);
-        int textColor = getResources().getColor(R.color.text_primary);
+        int accentColor = androidx.core.content.ContextCompat.getColor(this, R.color.purple_500);
+        int textColor = androidx.core.content.ContextCompat.getColor(this, R.color.text_primary);
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -317,11 +323,11 @@ public class FloatingService extends Service {
         copyBtn.setText("📋 复制此条");
         copyBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         copyBtn.setAllCaps(false);
-        copyBtn.setTextColor(getResources().getColor(R.color.white));
+        copyBtn.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.white));
 
         GradientDrawable btnBg = new GradientDrawable();
         btnBg.setCornerRadius(dp8);
-        btnBg.setColors(new int[]{accentColor, getResources().getColor(R.color.purple_700)});
+        btnBg.setColors(new int[]{accentColor, androidx.core.content.ContextCompat.getColor(this, R.color.purple_700)});
         btnBg.setGradientType(GradientDrawable.LINEAR_GRADIENT);
         btnBg.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT);
         copyBtn.setBackground(btnBg);
