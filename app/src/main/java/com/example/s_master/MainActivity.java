@@ -11,18 +11,13 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.util.Base64;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
-import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.widget.Toolbar;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
@@ -77,47 +72,12 @@ public class MainActivity extends AppCompatActivity {
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         mediaProjectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
 
-        setupToolbar();
         initViews();
         loadSettings();
         updateServiceStatus();
         checkPermissions();
 
         handleCopyAction();
-    }
-
-    private void setupToolbar() {
-        Toolbar toolbar = findViewById(R.id.toolbar);
-        setSupportActionBar(toolbar);
-        ActionBar actionBar = getSupportActionBar();
-        if (actionBar != null) {
-            actionBar.setTitle("S-master AI");
-            actionBar.setSubtitle("截图分析助手");
-        }
-    }
-
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        getMenuInflater().inflate(R.menu.main_menu, menu);
-        return true;
-    }
-
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        int id = item.getItemId();
-        
-        if (id == R.id.action_clear_mp_cache) {
-            clearMediaProjectionCache();
-            return true;
-        } else if (id == R.id.action_reset_settings) {
-            resetAllSettings();
-            return true;
-        } else if (id == R.id.action_about) {
-            showAboutDialog();
-            return true;
-        }
-        
-        return super.onOptionsItemSelected(item);
     }
 
     private void initViews() {
@@ -127,19 +87,41 @@ public class MainActivity extends AppCompatActivity {
 
         MaterialButton startBtn = findViewById(R.id.startBtn);
         MaterialButton stopBtn = findViewById(R.id.stopBtn);
-        MaterialButton settingsBtn = findViewById(R.id.settingsBtn);
         MaterialButton promptBtn = findViewById(R.id.promptBtn);
+        MaterialButton moreBtn = findViewById(R.id.moreBtn);
 
         startBtn.setOnClickListener(v -> startFloatingService());
         stopBtn.setOnClickListener(v -> stopFloatingService());
-        settingsBtn.setOnClickListener(v -> showSettingsDialog());
         promptBtn.setOnClickListener(v -> showPromptDialog());
+        moreBtn.setOnClickListener(v -> showMoreOptions());
 
         silentSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             prefs.edit().putBoolean(KEY_SILENT_MODE, isChecked).apply();
             isSilentMode = isChecked;
             updateServiceStatus();
         });
+    }
+
+    private void showMoreOptions() {
+        String[] options = {"API 设置", "清除授权缓存", "重置所有设置", "关于"};
+        new AlertDialog.Builder(this)
+                .setItems(options, (dialog, which) -> {
+                    switch (which) {
+                        case 0:
+                            showSettingsDialog();
+                            break;
+                        case 1:
+                            clearMediaProjectionCache();
+                            break;
+                        case 2:
+                            resetAllSettings();
+                            break;
+                        case 3:
+                            showAboutDialog();
+                            break;
+                    }
+                })
+                .show();
     }
 
     private void loadSettings() {

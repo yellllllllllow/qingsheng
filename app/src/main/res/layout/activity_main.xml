@@ -18,16 +18,14 @@
         app:titleTextAppearance="@style/TextAppearance.Material3.TitleMedium"
         app:titleTextColor="@color/text_primary">
 
-        <ImageButton
-            android:id="@+id/settingsBtn"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/moreBtn"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_gravity="end"
-            android:layout_marginEnd="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="设置"
-            android:src="@android:drawable/ic_menu_preferences"
-            app:tint="@color/text_secondary" />
+            android:text="更多"
+            android:textColor="@color/text_secondary" />
 
     </com.google.android.material.appbar.MaterialToolbar>
 
