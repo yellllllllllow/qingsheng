@@ -27,9 +27,13 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.google.android.material.textfield.TextInputEditText;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import android.util.Log;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
@@ -43,6 +47,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_CUSTOM_PROMPT = "custom_prompt";
     private static final String KEY_SILENT_MODE = "silent_mode";
     private static final String KEY_AUTO_START = "auto_start";
+    private static final String KEY_MEDIA_PROJECTION_RESULT_CODE = "mp_result_code";
+    private static final String KEY_MEDIA_PROJECTION_DATA = "mp_result_data";
 
     private static final int REQUEST_OVERLAY_PERMISSION = 101;
     private static final int REQUEST_MEDIA_PROJECTION = 102;
@@ -233,10 +239,59 @@ public class MainActivity extends AppCompatActivity {
 
     private void startMediaProjection() {
         try {
+            Intent savedData = getSavedMediaProjectionData();
+            if (savedData != null) {
+                int resultCode = prefs.getInt(KEY_MEDIA_PROJECTION_RESULT_CODE, -1);
+                if (resultCode != -1) {
+                    startServiceWithMediaProjection(resultCode, savedData);
+                    return;
+                }
+            }
             startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION);
         } catch (Exception e) {
             Toast.makeText(this, "无法启动屏幕截图: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private Intent getSavedMediaProjectionData() {
+        try {
+            String dataStr = prefs.getString(KEY_MEDIA_PROJECTION_DATA, null);
+            if (dataStr != null) {
+                byte[] dataBytes = Base64.decode(dataStr, Base64.DEFAULT);
+                ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(dataBytes));
+                return (Intent) ois.readObject();
+            }
+        } catch (Exception e) {
+            Log.e("MainActivity", "Failed to get saved MediaProjection data", e);
+        }
+        return null;
+    }
+
+    private void saveMediaProjectionData(int resultCode, Intent data) {
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ObjectOutputStream oos = new ObjectOutputStream(baos);
+            oos.writeObject(data);
+            String dataStr = Base64.encodeToString(baos.toByteArray(), Base64.DEFAULT);
+            
+            prefs.edit()
+                    .putInt(KEY_MEDIA_PROJECTION_RESULT_CODE, resultCode)
+                    .putString(KEY_MEDIA_PROJECTION_DATA, dataStr)
+                    .apply();
+        } catch (Exception e) {
+            Log.e("MainActivity", "Failed to save MediaProjection data", e);
+        }
+    }
+
+    private void startServiceWithMediaProjection(int resultCode, Intent data) {
+        Intent serviceIntent = new Intent(this, FloatingService.class);
+        serviceIntent.putExtra("resultCode", resultCode);
+        serviceIntent.putExtra("resultData", data);
+        ContextCompat.startForegroundService(this, serviceIntent);
+
+        isServiceRunning = true;
+        updateServiceStatus();
+        Toast.makeText(this, "服务已启动，点击悬浮球截屏分析", Toast.LENGTH_LONG).show();
     }
 
     private void stopFloatingService() {
@@ -269,6 +324,8 @@ public class MainActivity extends AppCompatActivity {
 
         if (requestCode == REQUEST_MEDIA_PROJECTION) {
             if (resultCode == RESULT_OK && data != null) {
+                saveMediaProjectionData(resultCode, data);
+                
                 int resultCodeFinal = resultCode;
                 Intent dataFinal = data;
 
