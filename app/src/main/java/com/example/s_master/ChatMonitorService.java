@@ -97,7 +97,6 @@ public class ChatMonitorService extends Service {
         backgroundHandler = new Handler(backgroundThread.getLooper());
 
         createNotificationChannel();
-        startForegroundService();
 
         IntentFilter filter = new IntentFilter();
         filter.addAction(ACTION_CAPTURE);
