@@ -48,9 +48,20 @@ public class ChatMonitorService extends Service {
     private HandlerThread backgroundThread;
     private AIService aiService;
 
-    private boolean isAnalyzing = false;
-    private String lastResultText = "";
-    private String lastResultLabel = "";
+    private volatile boolean isAnalyzing = false;
+    private volatile String lastResultText = "";
+    private volatile String lastResultLabel = "";
+    private volatile boolean pendingCapture = false;
+
+    private final MediaProjection.Callback projectionCallback = new MediaProjection.Callback() {
+        @Override
+        public void onStop() {
+            Log.w(TAG, "MediaProjection stopped by system");
+            getSharedPreferences("S_masterPrefs", MODE_PRIVATE).edit()
+                    .putBoolean("media_projection_granted", false).apply();
+            stopSelf();
+        }
+    };
 
     private BroadcastReceiver actionReceiver = new BroadcastReceiver() {
         @Override
@@ -86,7 +97,7 @@ public class ChatMonitorService extends Service {
         backgroundHandler = new Handler(backgroundThread.getLooper());
 
         createNotificationChannel();
-        startForeground(NOTIFICATION_ID, createNotification());
+        startForegroundService();
 
         IntentFilter filter = new IntentFilter();
         filter.addAction(ACTION_CAPTURE);
@@ -178,23 +189,78 @@ public class ChatMonitorService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && intent.hasExtra("resultCode") && intent.hasExtra("resultData")) {
-            int resultCode = intent.getIntExtra("resultCode", 0);
-            Intent data = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                    ? intent.getParcelableExtra("resultData", Intent.class)
-                    : intent.getParcelableExtra("resultData");
-            if (data != null) {
-                setupMediaProjection(resultCode, data);
+        createNotificationChannel();
+        startForeground(NOTIFICATION_ID, createNotification());
+
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(ACTION_CAPTURE);
+        filter.addAction(ACTION_COPY);
+        filter.addAction(ACTION_STOP);
+        filter.addAction(ACTION_OPEN_APP);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(actionReceiver, filter, RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(actionReceiver, filter);
+        }
+
+        if (intent != null) {
+            int resultCode = intent.getIntExtra("resultCode", -1);
+            String resultData = intent.getStringExtra("resultData");
+            if (resultCode != -1 && resultData != null) {
+                restoreMediaProjection(resultCode, resultData);
             }
         }
+
         return START_STICKY;
     }
 
+    private void restoreMediaProjection(int resultCode, String serializedData) {
+        try {
+            String[] parts = serializedData.split("\\|", 2);
+            if (parts.length < 2) {
+                Log.e(TAG, "Invalid serialized data format");
+                return;
+            }
+            int uid = Integer.parseInt(parts[0]);
+            String uriString = parts[1];
+
+            Intent data = new Intent();
+            data.setData(android.net.Uri.parse(uriString));
+            data.putExtra("android.content.pm.PACKAGE_NAME", getPackageName());
+            data.putExtra("android.content.pm.PROJECTION_SECONDARY_UID", uid);
+
+            setupMediaProjection(resultCode, data);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to restore MediaProjection", e);
+            showToast("⚠️ 无法恢复屏幕投影权限，请重新授权");
+            getSharedPreferences("S_masterPrefs", MODE_PRIVATE).edit()
+                    .putBoolean("media_projection_granted", false).apply();
+        }
+    }
+
     private void setupMediaProjection(int resultCode, Intent data) {
-        MediaProjectionManager pm = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-        mediaProjection = pm.getMediaProjection(resultCode, data);
-        if (mediaProjection != null) {
-            setupVirtualDisplay();
+        try {
+            MediaProjectionManager pm = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+            mediaProjection = pm.getMediaProjection(resultCode, data);
+            if (mediaProjection != null) {
+                mediaProjection.registerCallback(projectionCallback, backgroundHandler);
+                setupVirtualDisplay();
+            } else {
+                showToast("⚠️ 无法获取屏幕投影权限，请重新授权");
+                getSharedPreferences("S_masterPrefs", MODE_PRIVATE).edit()
+                        .putBoolean("media_projection_granted", false).apply();
+                stopSelf();
+            }
+        } catch (SecurityException e) {
+            Log.e(TAG, "MediaProjection security error", e);
+            showToast("⚠️ 屏幕投影权限已失效，请重新授权");
+            getSharedPreferences("S_masterPrefs", MODE_PRIVATE).edit()
+                    .putBoolean("media_projection_granted", false).apply();
+            stopSelf();
+        } catch (Exception e) {
+            Log.e(TAG, "MediaProjection setup error", e);
+            showToast("⚠️ 投影初始化失败：" + e.getMessage());
+            stopSelf();
         }
     }
 
@@ -209,11 +275,18 @@ public class ChatMonitorService extends Service {
 
         imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2);
         imageReader.setOnImageAvailableListener(reader -> {
-            if (!isAnalyzing) {
-                Image image = reader.acquireLatestImage();
-                if (image != null) {
+            Image image = null;
+            try {
+                image = reader.acquireLatestImage();
+                if (image != null && pendingCapture && !isAnalyzing) {
+                    pendingCapture = false;
                     processScreenshot(image);
-                    image.close();
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Image available error", e);
+            } finally {
+                if (image != null) {
+                    try { image.close(); } catch (Exception ignored) {}
                 }
             }
         }, backgroundHandler);
@@ -225,15 +298,16 @@ public class ChatMonitorService extends Service {
     }
 
     private void takeScreenshot() {
-        if (imageReader == null || isAnalyzing) return;
-
-        Image image = imageReader.acquireLatestImage();
-        if (image == null) {
-            showToast("⚠️ 截图失败，请检查权限");
+        if (isAnalyzing) {
+            showToast("⏳ 正在分析中，请稍后再试");
             return;
         }
-        processScreenshot(image);
-        image.close();
+        if (imageReader == null || mediaProjection == null) {
+            showToast("⚠️ 屏幕投影未就绪，请重新启动服务");
+            stopSelf();
+            return;
+        }
+        pendingCapture = true;
     }
 
     private void processScreenshot(Image image) {

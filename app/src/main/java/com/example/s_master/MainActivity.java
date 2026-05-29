@@ -252,27 +252,17 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == REQUEST_MEDIA_PROJECTION) {
             if (resultCode == RESULT_OK && data != null) {
                 SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-                Bundle extras = data.getExtras();
-                StringBuilder sb = new StringBuilder();
-                if (extras != null) {
-                    for (String key : extras.keySet()) {
-                        Object value = extras.get(key);
-                        if (value instanceof String) {
-                            sb.append(key).append("=").append((String) value).append(";");
-                        } else if (value instanceof Integer) {
-                            sb.append(key).append("=").append((Integer) value).append(";");
-                        }
-                    }
-                }
+
+                String serializedData = serializeIntentData(data);
                 prefs.edit()
                         .putBoolean("media_projection_granted", true)
                         .putInt("media_projection_result_code", resultCode)
-                        .putString("media_projection_result_data", sb.toString())
+                        .putString("media_projection_result_data", serializedData)
                         .apply();
 
                 monitorServiceIntent = new Intent(this, ChatMonitorService.class);
                 monitorServiceIntent.putExtra("resultCode", resultCode);
-                monitorServiceIntent.putExtra("resultData", data);
+                monitorServiceIntent.putExtra("resultData", serializedData);
                 startService(monitorServiceIntent);
 
                 if (Settings.canDrawOverlays(this)) {
@@ -285,6 +275,20 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, "✅ 服务已启动，可切换到其他应用", Toast.LENGTH_SHORT).show();
                 moveTaskToBack(true);
             }
+        }
+    }
+
+    private String serializeIntentData(Intent data) {
+        try {
+            int uid = data.getIntExtra("android.content.pm.PROJECTION_SECONDARY_UID", -1);
+            String uriString = "";
+            if (data.getData() != null) {
+                uriString = data.getData().toString();
+            }
+            return uid + "|" + uriString;
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to serialize intent data", e);
+            return "";
         }
     }
 
